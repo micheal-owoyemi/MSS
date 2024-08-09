@@ -3,6 +3,9 @@ PlayerProfile.__index = PlayerProfile
 
 local PlayerProfiles = {}
 
+-- SERVICES
+local HTTPService = game:GetService('HttpService')
+
 function PlayerProfile.new(profile, player, replica)
     local self = setmetatable({
         Profile = profile,
@@ -28,6 +31,20 @@ function PlayerProfile:getCoins()
     end
 
     return self.Profile.Data.Coins
+end
+
+function PlayerProfile:addWeapon(weaponObject)
+    if not self:IsActive() then
+        return
+    end
+
+    local weaponData = {
+        weaponName = weaponObject.weaponName,
+        weaponType = weaponObject.weaponType
+    }
+    local UUID = HTTPService:GenerateGUID(false)
+    self.Replica:SetValue({'Weapons', UUID}, weaponData)
+    print(self.Replica.Data)
 end
 
 function PlayerProfile:addZone(zone)

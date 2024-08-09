@@ -4,8 +4,8 @@
 local ProfileTemplate = require(script.DefaultStats)
 
 ----- Services -------
-
 local RunService = game:GetService('RunService')
+local Players = game:GetService("Players")
 
 ----- Loaded Modules -----
 local DataHandler = {}
@@ -15,9 +15,6 @@ local ReplicaService = require(game.ServerScriptService.Server.ReplicaService)
 
 ----- Private Variables -----
 local ClassToken = ReplicaService.NewClassToken("PlayerProfile")
-
-local Players = game:GetService("Players")
-
 local ProfileStore = ProfileService.GetProfileStore(
     "PlayerData",
     ProfileTemplate
