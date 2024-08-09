@@ -3,10 +3,10 @@ PlayerProfile.__index = PlayerProfile
 
 local PlayerProfiles = {}
 
-function PlayerProfile.new(profile, player)
+function PlayerProfile.new(profile, player, replica)
     local self = setmetatable({
         Profile = profile,
-        -- Replica = replica,
+        Replica = replica,
         _player = player,
     }, PlayerProfile)
 
@@ -18,7 +18,8 @@ function PlayerProfile:giveCoins(amount)
     if not self:IsActive() then
         return
     end
-    self.Profile.Data.Coins += amount
+    local currentCoins = self:getCoins()
+    self.Replica:SetValue({'Coins'}, currentCoins + amount)
 end
 
 function PlayerProfile:getCoins()

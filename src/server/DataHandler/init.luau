@@ -11,8 +11,10 @@ local RunService = game:GetService('RunService')
 local DataHandler = {}
 local ProfileService = require(game.ServerScriptService.Server.ProfileService)
 local PlayerProfileClass = require(script.PlayerProfile)
+local ReplicaService = require(game.ServerScriptService.Server.ReplicaService)
 
 ----- Private Variables -----
+local ClassToken = ReplicaService.NewClassToken("PlayerProfile")
 
 local Players = game:GetService("Players")
 
@@ -44,7 +46,15 @@ local function PlayerAdded(player)
             player:Kick()
         end)
         if player:IsDescendantOf(Players) == true then
-            local playerProfile = PlayerProfile.new(profile, player)
+
+            local replica = ReplicaService.NewReplica({
+                ClassToken = ClassToken,
+                Tags = {Player = player},
+                Data = profile.Data,
+                Replication = 'All'
+            })
+            
+            local playerProfile = PlayerProfile.new(profile, player, replica)
             playerProfile:giveCoins(10)
             print(playerProfile:getCoins())
             -- A profile has been successfully loaded:
