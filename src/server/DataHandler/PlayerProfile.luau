@@ -6,6 +6,7 @@ local PlayerProfiles = {}
 -- SERVICES
 local HTTPService = game:GetService('HttpService')
 
+-- FUNCTIONS
 function PlayerProfile.new(profile, player, replica)
     local self = setmetatable({
         Profile = profile,
@@ -40,12 +41,19 @@ function PlayerProfile:addWeapon(weaponObject)
 
     local weaponData = {
         weaponName = weaponObject.weaponName,
-        weaponType = weaponObject.weaponType
+        weaponType = weaponObject.weaponType,
+        equipped = weaponObject.equipped
     }
+
+    local newWeaponData = self.Replica.Data.Weapons
     local UUID = HTTPService:GenerateGUID(false)
-    self.Replica:SetValue({'Weapons', UUID}, weaponData)
-    print(self.Replica.Data)
+
+    newWeaponData[UUID] = weaponData
+    
+    self.Replica:SetValue({'Weapons'}, newWeaponData)
+    print('[PlayerProfile] Weapon Added:', self.Replica.Data)
 end
+
 
 function PlayerProfile:addZone(zone)
     if not self:IsActive() then

@@ -1,5 +1,11 @@
 return {
     Coins = 0,
-    Weapons = {},
+    Weapons = {
+        ['Default'] = {
+        weaponName = 'Wooden Sword',
+        weaponType = 'Sword',
+        equipped = true
+        }
+    },
     ZonesUnlocked = {}
 }

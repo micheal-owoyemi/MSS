@@ -13,6 +13,6 @@ game.Players.PlayerAdded:Connect(function(Player)
         return
     end
 
-    local weaponInstance = WeaponClass.new('Sword', 'Excalibur')
+    local weaponInstance = WeaponClass.new('Sword', 'Wooden Sword', false, Player)
     profile:addWeapon(weaponInstance)
 end)

@@ -1,6 +1,4 @@
--- ProfileTemplate table is what empty profiles will default to.
--- Updating the template will not include missing template values
---   in existing player profiles!
+
 local ProfileTemplate = require(script.DefaultStats)
 
 ----- Services -------
