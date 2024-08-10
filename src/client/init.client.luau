@@ -27,3 +27,14 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
         Replica:ListenToChange({'Weapons'}, function(new_value, old_value)
             print('[Client Init] Data Has Been Changed, New Replica Data: ', new_value)
             -- When changed, does it again
+            for UUID, weapon in pairs(new_value) do
+                print(UUID, weapon)
+                WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
+                -- Major potential Doubling problem
+                -- Does not account for deletion
+            end
+
+        end)
+    end
+end)
+
