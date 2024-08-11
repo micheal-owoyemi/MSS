@@ -12,7 +12,10 @@ game.Players.PlayerAdded:Connect(function(Player)
     if not profile then
         return
     end
+    local weaponsFolder = Instance.new('Folder')
+    weaponsFolder.Name = Player.Name
+    weaponsFolder.Parent = workspace.Weapons
 
-    local weaponInstance = WeaponClass.new('Sword', 'Wooden Sword', false, Player)
-    profile:addWeapon(weaponInstance)
+    --local weaponInstance = WeaponClass.new('Sword', 'Wooden Sword', false, Player)
+    --profile:addWeapon(weaponInstance)
 end)
