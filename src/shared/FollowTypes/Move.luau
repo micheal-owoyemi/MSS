@@ -31,8 +31,13 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
 
     rayParams.FilterDescendantsInstances = {weaponsFolder, character}
 
-    local radius = WeaponConfig.Spacing * (#weapons - 1) / math.pi
-    local angleStep = math.pi / (#weapons - 1)
+    local numOfWeapons = #weapons
+    if numOfWeapons == 1 then
+        numOfWeapons = 2
+    end
+
+    local radius = WeaponConfig.Spacing * (numOfWeapons - 1) / math.pi
+    local angleStep = math.pi / (numOfWeapons - 1)
 
     for i, Weapon in weapons do
         if Weapon ~= weapon then
@@ -51,13 +56,13 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
             Y = (rayResult.Position.Y + Weapon.PrimaryPart.Size.Y/2) + offset
         end
 
-        local targetCFrame = CFrame.new(humanoidRootPart.Position.X, 0, humanoidRootPart.Position.Z) * humanoidRootPart.CFrame.Rotation * CFrame.new(X, Y, Z)
+        local targetCFrame = CFrame.new(humanoidRootPart.Position.X, offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
     end
 end
 
-local OFFSET = 0
+local OFFSET = 10
 
 return function(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed) 
     UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed, OFFSET)

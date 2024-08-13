@@ -19,18 +19,24 @@ function WeaponClass.new(weaponType, weaponName, equipped, player)
         weaponDMG = WeaponConfig[weaponType][weaponName].Damage,
         weaponType = weaponType,
         weaponName = weaponName,
-        equipped = equipped,
         weaponModel = ReplicatedStorage.Shared.Assets.Weapons[weaponType][weaponName].Model:Clone(),
+        folder = workspace:WaitForChild('Weapons'):WaitForChild(player.Name),
+
+        equipped = equipped,
+        engaged = false,
+
         player = player,
         character = player.Character or player.CharacterAdded:Wait(),
+
         trove = Trove.new(),
         pid = PID.new(0, 1, 0.0375, 0, 0),
+
         idle = require(ReplicatedStorage.Shared.FollowTypes.Idle),
         move = require(ReplicatedStorage.Shared.FollowTypes.Move),
-        folder = workspace:WaitForChild('Weapons'):WaitForChild(player.Name)
+
     }, WeaponClass)
     
-    if equipped == true then
+    if equipped == true then  
         self.weaponModel.Parent = self.folder
     end
     
@@ -45,17 +51,20 @@ function WeaponClass:setUpMovementDetection()
 
     local movementConnection = RunService.RenderStepped:Connect(function(dt)
         if humanoid.MoveDirection.Magnitude > 0 then
-            print('pi')
             self.move(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
             
         else
-
+            self.idle(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
         end
     end)
 
 end
 
 function WeaponClass:interState()
+    
+end
+
+function WeaponClass:engageMob(targetMob)
     
 end
 

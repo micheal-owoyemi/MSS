@@ -1,0 +1,5 @@
+-- Create new (zone, type,  int table of players engaged and indv damage dealt, health etc)
+-- Unengaged Idle (Unengaged Idle Anim)
+-- Engaged mode (Initial Enaggement Anim)
+-- Engaged Idle (Initial Anim, then hurt anim porportional to health)
+-- Death (Death anim and destruction, dispersement of coins/xp/items)

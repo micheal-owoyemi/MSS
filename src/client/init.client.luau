@@ -30,8 +30,8 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
             for UUID, weapon in pairs(new_value) do
                 print(UUID, weapon)
                 WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
-                -- Major potential Doubling problem
-                -- Does not account for deletion
+
+                -- make a deep compare shared function
             end
 
         end)
