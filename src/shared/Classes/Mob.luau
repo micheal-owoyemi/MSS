@@ -12,7 +12,7 @@ local RunService = game:GetService('RunService')
 -- MODULES
 local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 local Trove = require(ReplicatedStorage.Shared.Trove)
-
+ 
 -- VARIABLES
 
 -- FUNCTIONS
@@ -40,7 +40,7 @@ end
 function MobClass:spawn()
     if self.spawnLocation:GetAttribute('Active') == false then -- If active == false due to cooldown etc then dont bring to workspace
         self.mobModel.Parent = self.folder
-        self.mobModel.PrimaryPart.Position = self.spawnLocation.Position
+        self.mobModel.PrimaryPart.Position = Vector3.new(self.spawnLocation.Position.X, self.mobModel.PrimaryPart.Size.Y/2, self.spawnLocation.Position.Z)
         self.spawnLocation:SetAttribute('Active', true)
 
         local animCont = self.mobModel.AnimationController
@@ -69,6 +69,14 @@ function MobClass:engaged()
             task.wait(engagedAnim.Length)
             idleAnim.Looped = true
             idleAnim:Play()
+        end
+    end
+end
+
+function MobClass.spawnMobs() -- Link to Region3 and check if players
+    for _, spawnArea in workspace:WaitForChild('Mobs'):GetChildren() do
+        for _, spawnPoint in spawnArea:WaitForChild('Spawn Points'):GetChildren() do
+            MobClass.new(tostring(spawnArea), spawnPoint:GetAttribute('Mob'), spawnPoint)
         end
     end
 end
