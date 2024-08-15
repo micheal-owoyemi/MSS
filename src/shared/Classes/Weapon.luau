@@ -36,16 +36,18 @@ function WeaponClass.new(weaponType: string, weaponName: string, equipped: boole
         trove = Trove.new(),
         pid = PID.new(0, 1, 0.0375, 0, 0),
 
+        mobIdle = require(ReplicatedStorage.Shared.FollowTypes.Mob),
         idle = require(ReplicatedStorage.Shared.FollowTypes.Idle),
         move = require(ReplicatedStorage.Shared.FollowTypes.Move),
+        
 
     }, WeaponClass)
     
     if equipped == true then  
         self.weaponModel.Parent = self.folder
         self:updateCursor(player)
-        self:checkMouseTarget(self.player)
         self:setUpMovementDetection()
+        self:checkMouseTarget(self.player)
     end
 
     return self
@@ -55,15 +57,16 @@ function WeaponClass:setUpMovementDetection()
     local humanoid = self.character:WaitForChild('Humanoid')
     local humanoidRootPart = self.character:WaitForChild('HumanoidRootPart')
 
-    local movementConnection = RunService.RenderStepped:Connect(function(dt)
+    local function weaponRender(dt)
         if humanoid.MoveDirection.Magnitude > 0 then
             self.move(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
             
         else
             self.idle(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
         end
-    end)
+    end
 
+    RunService:BindToRenderStep('Weapon Render', 0, weaponRender)
 end
 
 function WeaponClass:checkMouseTarget(player: Player)
@@ -76,6 +79,13 @@ function WeaponClass:checkMouseTarget(player: Player)
                        if target:GetAttribute('Mob') then
                             self.engaged = true
                             self.target = target
+                            RunService:UnbindFromRenderStep('Weapon Render')
+
+                            local function mobWeaponRender(dt)
+                                self.mobIdle(self.folder, target, self.weaponModel, 0.03)
+                            end
+
+                            RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
                     end
                 end
             end)
@@ -99,6 +109,8 @@ function WeaponClass:updateCursor(player: Player)
                 else
                     UserInputService.MouseIcon = ''
                 end
+            else
+                UserInputService.MouseIcon = ''
             end
         end)
     end
@@ -111,6 +123,8 @@ end
 function WeaponClass:engageMob(targetMob)
     
 end
+
+
 
 --[[So on the client-side you would do Player:GetMouse() 
 and you would use the Mouse to detect when they click their mouse button, and then check mouse.target   
