@@ -94,23 +94,41 @@ function WeaponClass:checkMouseTarget(player: Player)
 end
 
 function WeaponClass:updateCursor(player: Player)
+    local lastMobInstance
     if player and player:GetMouse() then
         local playerMouse = player:GetMouse()
 
         local updateCursorConnection = RunService.RenderStepped:Connect(function(dt)
             local target = playerMouse.Target
 
-            if target ~= nil and target:IsA('MeshPart') then
+
+            if target ~= nil and target:IsA('MeshPart') and target:GetAttribute('Mob') then
+                local highlight
+
+                if target.Highlight then
+                    print('Highlight')
+                else
+                    highlight = nil
+                end
+
                 if target:GetAttribute('Mob') then
                     local distance = player:DistanceFromCharacter(target.Position)
                     if distance <= mobMinDistance then
                         UserInputService.MouseIcon = mobCursor
+                        target.Highlight.Enabled = true
+                        lastMobInstance = target
                     end
                 else
                     UserInputService.MouseIcon = ''
+                    if lastMobInstance then
+                        lastMobInstance.Highlight.Enabled = false
+                    end
                 end
             else
                 UserInputService.MouseIcon = ''
+                if lastMobInstance then
+                    lastMobInstance.Highlight.Enabled = false
+                end
             end
         end)
     end
