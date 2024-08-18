@@ -8,6 +8,7 @@ MobClass.__index = MobClass
 -- SERVICES
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local RunService = game:GetService('RunService')
+local Players = game:GetService('Players')
 
 -- MODULES
 local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
@@ -23,7 +24,7 @@ function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
         mobZone = mobZone, 
         mobName = mobName,
         mobModel = ReplicatedStorage.Shared.Assets.Mobs[mobZone][mobName].Model:Clone(),
-        folder =  workspace:WaitForChild('Mobs')[mobZone],
+        folder =  workspace:WaitForChild('Zones')[mobZone],
 
         cooldown = false,
         engaged = false,
@@ -73,12 +74,5 @@ function MobClass:engaged()
     end
 end
 
-function MobClass.spawnMobs() -- Link to Region3 and check if players
-    for _, spawnArea in workspace:WaitForChild('Mobs'):GetChildren() do
-        for _, spawnPoint in spawnArea:WaitForChild('Spawn Points'):GetChildren() do
-            MobClass.new(tostring(spawnArea), spawnPoint:GetAttribute('Mob'), spawnPoint)
-        end
-    end
-end
 
 return MobClass
