@@ -14,13 +14,18 @@ return {
         },
 
         ['Default2'] = {
-            weaponName = 'Wooden Sword',
+            weaponName = 'Superior Iron Sword',
             weaponType = 'Sword',
             equipped = true
         },
 
         ['Default3'] = {
-            weaponName = 'Wooden Sword',
+            weaponName = 'Superior Wooden Sword',
+            weaponType = 'Sword',
+            equipped = true
+        },
+        ['Default4'] = {
+            weaponName = 'Iron Sword',
             weaponType = 'Sword',
             equipped = true
         },
