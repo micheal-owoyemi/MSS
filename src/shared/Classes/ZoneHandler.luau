@@ -33,7 +33,7 @@ function ZoneHandler:mobSpawn()
             if canSpawn then
                 for _, spawnPoint in area:WaitForChild('Spawn Points'):GetChildren() do
                     MobClass.new(tostring(area), tostring(spawnPoint:GetAttribute('Mob')), spawnPoint)
-                   wait(0.5) -- Bandaid for smoother spawning
+                   task.wait(1) -- Bandaid for smoother spawning
                 end
             end
         end)

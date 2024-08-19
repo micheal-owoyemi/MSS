@@ -47,11 +47,34 @@ function WeaponClass.new(weaponType: string, weaponName: string, equipped: boole
         self.weaponModel.Parent = self.folder
         self:updateCursor(player)
         self:setUpMovementDetection()
-        self:checkMouseTarget(self.player)
+        self:setUpInteractionDetection(self.player)
     end
 
     return self
 end
+
+function WeaponClass:engageMob(target: MeshPart)
+
+    if target == self.target then
+        self.target = nil
+        self.engaged = false
+        self:setUpInteractionDetection(self.player)
+        self:setUpMovementDetection()
+        RunService:UnbindFromRenderStep("Mob Weapon Render")
+    else
+        self.engaged = true
+        self.target = target
+        self:setupTargetDetection()
+        RunService:UnbindFromRenderStep('Weapon Render')
+    
+        local function mobWeaponRender(dt)
+            self.mobIdle(self.folder, target, self.weaponModel, 0.03)
+        end
+    
+        RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
+    end
+end
+ 
 
 function WeaponClass:setUpMovementDetection()
     local humanoid = self.character:WaitForChild('Humanoid')
@@ -74,10 +97,10 @@ function WeaponClass:setupTargetDetection()
 	
 	connection = RunService.RenderStepped:Connect(function()
 		if self.target then
-			if self.player:DistanceFromCharacter(self.target.Position) > 50 then
+			if self.player:DistanceFromCharacter(self.target.Position) > mobMinDistance then
                 self.target = nil
                 self.engaged = false
-				self:checkMouseTarget(self.player)
+				self:setUpInteractionDetection(self.player)
 				self:setUpMovementDetection()
 				RunService:UnbindFromRenderStep("Mob Weapon Render")
 				connection:Disconnect()	
@@ -86,7 +109,7 @@ function WeaponClass:setupTargetDetection()
 	end)
 end
 
-function WeaponClass:checkMouseTarget(player: Player)
+function WeaponClass:setUpInteractionDetection(player: Player)
     if player then
         local playerMouse = player:GetMouse()
         if playerMouse then
@@ -103,8 +126,8 @@ function WeaponClass:checkMouseTarget(player: Player)
     end
 end
 
-function WeaponClass:updateCursor(player: Player)
-    local lastMobInstance
+function WeaponClass:updateCursor(player: Player) -- MAKE THIS BETTER!!
+    local lastMobInstance = nil
     if player and player:GetMouse() then
         local playerMouse = player:GetMouse()
 
@@ -112,11 +135,17 @@ function WeaponClass:updateCursor(player: Player)
             local target = playerMouse.Target
 
 
-            if target ~= nil and target:IsA('MeshPart') and target:GetAttribute('Mob') then
+            if target and target:IsA('MeshPart') and target:GetAttribute('Mob') then
 
                 if target:GetAttribute('Mob') then
                     local distance = player:DistanceFromCharacter(target.Position)
                     if distance <= mobMinDistance then
+
+                        if lastMobInstance then
+                            lastMobInstance.Highlight.Enabled = false
+                            lastMobInstance = nil
+                        end
+
                         UserInputService.MouseIcon = mobCursor
                         target.Highlight.Enabled = true
                         lastMobInstance = target
@@ -140,22 +169,9 @@ function WeaponClass:updateCursor(player: Player)
     end
 end
 
+
 function WeaponClass:interState()
     
 end
-
-function WeaponClass:engageMob(target: MeshPart)
-    self.engaged = true
-    self.target = target
-    self:setupTargetDetection()
-    RunService:UnbindFromRenderStep('Weapon Render')
-
-    local function mobWeaponRender(dt)
-        self.mobIdle(self.folder, target, self.weaponModel, 0.03)
-    end
-
-    RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
-end
-
 
 return WeaponClass

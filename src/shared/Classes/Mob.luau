@@ -24,7 +24,7 @@ function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
         mobZone = mobZone, 
         mobName = mobName,
         mobModel = ReplicatedStorage.Shared.Assets.Mobs[mobZone][mobName].Model:Clone(),
-        folder =  workspace:WaitForChild('Zones')[mobZone],
+        folder =  workspace:WaitForChild('Zones')[mobZone].Mobs,
 
         cooldown = false,
         engaged = false,
@@ -47,6 +47,8 @@ function MobClass:spawn()
         local animCont = self.mobModel.AnimationController
         local anims = self.mobModel:WaitForChild('Animations')
         local idleAnim = animCont:LoadAnimation(anims.Idle)
+
+        self.trove:Add(self.mobModel)
 
         idleAnim.Looped = true -- Initializes with idle Anim loop
         idleAnim:Play()
@@ -74,5 +76,7 @@ function MobClass:engaged()
     end
 end
 
-
+function MobClass:despawn()
+    self:Destroy()
+end
 return MobClass
