@@ -8,7 +8,7 @@ return {
         },
 
         ['Default1'] = {
-            weaponName = 'Wooden Sword',
+            weaponName = 'Superior Wooden Sword',
             weaponType = 'Sword',
             equipped = true
         },

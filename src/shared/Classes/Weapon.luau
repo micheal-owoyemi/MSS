@@ -92,26 +92,10 @@ function WeaponClass:checkMouseTarget(player: Player)
         if playerMouse then
             playerMouse.Button1Down:Connect(function()
                 local target = playerMouse.Target
-
-				if target == self.target and self.engaged then
-                    self.target = nil
-                    self.engaged = false
-                    RunService:UnbindFromRenderStep("Mob Weapon Render")
-                    self:setUpMovementDetection()
-				end
-
+                
                 if target:IsA('MeshPart') then
                     if target:GetAttribute('Mob') then
-                        self.engaged = true
-						self.target = target
-						self:setupTargetDetection()
-						RunService:UnbindFromRenderStep('Weapon Render')
-
-                        local function mobWeaponRender(dt)
-                           self.mobIdle(self.folder, target, self.weaponModel, 0.03)
-                        end
-
-                        RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
+                        self:engageMob(target)
                     end
                 end
             end)
@@ -141,15 +125,16 @@ function WeaponClass:updateCursor(player: Player)
                     UserInputService.MouseIcon = ''
                     if lastMobInstance then
                         lastMobInstance.Highlight.Enabled = false
+                        lastMobInstance = nil
                     end
+                    
                 end
             else
                 UserInputService.MouseIcon = ''
                 if lastMobInstance then
                     lastMobInstance.Highlight.Enabled = false
+                    lastMobInstance = nil
                 end
-            else
-                UserInputService.MouseIcon = ''
             end
         end)
     end
@@ -159,8 +144,17 @@ function WeaponClass:interState()
     
 end
 
-function WeaponClass:engageMob(targetMob)
-    
+function WeaponClass:engageMob(target: MeshPart)
+    self.engaged = true
+    self.target = target
+    self:setupTargetDetection()
+    RunService:UnbindFromRenderStep('Weapon Render')
+
+    local function mobWeaponRender(dt)
+        self.mobIdle(self.folder, target, self.weaponModel, 0.03)
+    end
+
+    RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
 end
 
 
