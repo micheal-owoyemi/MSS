@@ -56,13 +56,14 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
             Y = (rayResult.Position.Y + Weapon.PrimaryPart.Size.Y/2) + offset
         end
 
-        local targetCFrame = CFrame.new(humanoidRootPart.Position.X, offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame
+        local targetCFrame = CFrame.new(humanoidRootPart.Position.X , offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
     end
 end
 
 local OFFSET = 10
+
 
 return function(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed) 
     UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed, OFFSET)
