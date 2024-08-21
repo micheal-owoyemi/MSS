@@ -58,10 +58,12 @@ function WeaponClass:setUpMobInteraction(target: MeshPart)
 
     if target == self.target and self.engaged then
         self:disengageMob(target)
+        return
     end
 
     if target and not self.target and not self.engaged then
         self:engageMob(target)
+        return
     else
         print('Can not engage mob')
     end
