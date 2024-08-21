@@ -75,8 +75,9 @@ function WeaponClass:disengageMob(target: MeshPart)
         self.target = nil
         self.engaged = false
         self:setUpInteractionDetection(self.player)
-        self:setUpMovementDetection()
         RunService:UnbindFromRenderStep("Mob Weapon Render")
+        
+        self:setUpMovementDetection()
     end
 end
 
