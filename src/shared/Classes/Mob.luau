@@ -79,4 +79,5 @@ end
 function MobClass:despawn()
     self:Destroy()
 end
+
 return MobClass

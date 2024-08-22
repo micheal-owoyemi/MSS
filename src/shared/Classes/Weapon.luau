@@ -54,8 +54,6 @@ function WeaponClass.new(weaponType: string, weaponName: string, equipped: boole
 end
 
 function WeaponClass:setUpMobInteraction(target: MeshPart)
-    
-
     if target == self.target and self.engaged then
         self:disengageMob(target)
         return
@@ -64,17 +62,13 @@ function WeaponClass:setUpMobInteraction(target: MeshPart)
     if target and not self.target and not self.engaged then
         self:engageMob(target)
         return
-    else
-        print('Can not engage mob')
     end
 end
  
 function WeaponClass:disengageMob(target: MeshPart)
     if target == self.target and self.engaged then
-        print('[Disengaging Mob] Target: ', target)
         self.target = nil
         self.engaged = false
-        self:setUpInteractionDetection(self.player)
         RunService:UnbindFromRenderStep("Mob Weapon Render")
         
         self:setUpMovementDetection()
@@ -82,7 +76,6 @@ function WeaponClass:disengageMob(target: MeshPart)
 end
 
 function WeaponClass:engageMob(target: MeshPart)
-    print('[Engage Mob] Target: ', target)
     self.engaged = true
     self.target = target
     self:setupTargetDetection()
@@ -95,13 +88,13 @@ function WeaponClass:engageMob(target: MeshPart)
     RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
 end
 
+
+
 function WeaponClass:setUpMovementDetection()
     local humanoid = self.character:WaitForChild('Humanoid')
     local humanoidRootPart = self.character:WaitForChild('HumanoidRootPart')
 
     if not self.engaged and not self.target then
-
-        print('[Movement Detection] Target: ', self.target, self.engaged)
         local function weaponRender(dt)
             if humanoid.MoveDirection.Magnitude > 0 then
                 self.move(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)

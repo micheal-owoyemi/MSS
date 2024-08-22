@@ -22,7 +22,6 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     local replicaData = Replica.Data
 
     if isLocal then 
-        print('[Client Init] Initial Replica Data: ', replicaData)
         -- Grabs init replicaData, spawns weapons for it
         for UUID, weapon in pairs(replicaData.Weapons) do
             WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
