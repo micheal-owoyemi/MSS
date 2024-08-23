@@ -61,7 +61,7 @@ function MobManager:setUpZoneSpawning()
 
                 for _, spawnPoint in area:WaitForChild('Spawn Points'):GetChildren() do
                     print('spawning...')
-                    local mobInstance = self:spawnMob(tostring(area), tostring(spawnPoint:GetAttribute('Mob')), spawnPoint)
+                    local mobInstance = self:spawnMob(tostring(area), tostring(spawnPoint:GetAttribute('Mob')), spawnPoint) 
                     table.insert(self.mobInstances, mobInstance)
                     task.wait(1) -- Bandaid for smoother spawning
                 end
