@@ -6,17 +6,22 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 
 -- MODULES
 local ZonePlus = require(ReplicatedStorage.Shared:WaitForChild('Zone'))
-local MobClass = require(ReplicatedStorage.Shared.Classes.Mob)
+local MobManager = require(ReplicatedStorage.Shared.Managers.Mob)
 
 -- VARIABLES
 local zones = workspace:WaitForChild('Zones')
-
+local mobHandler 
+-- FUNCTIONS
 
 function ZoneHandler:mobSpawn()
     for _, area in zones:GetChildren() do
+        mobHandler = MobManager.new(area.Name)
+        
         local container = area.Container
         local zone = ZonePlus.new(container)
         zone:setAccuracy('Low')
+
+        local mobHandler = MobManager.new(area.Name)
     
         zone.playerEntered:Connect(function(player)
             local canSpawn = false
@@ -32,9 +37,10 @@ function ZoneHandler:mobSpawn()
 
             if canSpawn then
                 for _, spawnPoint in area:WaitForChild('Spawn Points'):GetChildren() do
-                    MobClass.new(tostring(area), tostring(spawnPoint:GetAttribute('Mob')), spawnPoint)
+                    mobHandler:spawnMob(tostring(area), tostring(spawnPoint:GetAttribute('Mob')), spawnPoint)
                    task.wait(1) -- Bandaid for smoother spawning
                 end
+
             end
         end)
 

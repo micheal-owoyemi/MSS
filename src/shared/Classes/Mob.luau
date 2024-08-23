@@ -14,8 +14,6 @@ local Players = game:GetService('Players')
 local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 local Trove = require(ReplicatedStorage.Shared.Trove)
  
--- VARIABLES
-
 -- FUNCTIONS
 function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
     local self = setmetatable({
@@ -77,7 +75,11 @@ function MobClass:engaged()
 end
 
 function MobClass:despawn()
-    self:Destroy()
+    self.mobModel:Destroy()
+
+    setmetatable(self, nil)
+    table.clear(self)
+    table.freeze(self)
 end
 
 return MobClass
