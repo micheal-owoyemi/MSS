@@ -18,6 +18,7 @@ local Trove = require(ReplicatedStorage.Shared.Trove)
 function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
     local self = setmetatable({
         mobHealth = MobConfig[mobZone][mobName].Health,
+        currentHealth = MobConfig[mobZone][mobName].Health,
         spawnLocation = spawnLocation,
         mobZone = mobZone, 
         mobName = mobName,
@@ -40,7 +41,10 @@ function MobClass:spawn()
     if self.spawnLocation:GetAttribute('Active') == false then -- If active == false due to cooldown etc then dont bring to workspace
         self.mobModel.Parent = self.folder
         self.mobModel.PrimaryPart.Position = Vector3.new(self.spawnLocation.Position.X, self.mobModel.PrimaryPart.Size.Y/2, self.spawnLocation.Position.Z)
+        
         self.spawnLocation:SetAttribute('Active', true)
+        
+        self.mobModel.Mesh.Attachment.MobNameGUI.MobName.Text = self.mobName
 
         local animCont = self.mobModel.AnimationController
         local anims = self.mobModel:WaitForChild('Animations')
@@ -72,6 +76,14 @@ function MobClass:engaged()
             idleAnim:Play()
         end
     end
+end
+
+function MobClass:attacked()
+    local animCont = self.mobModel.AnimationController
+    local anims = self.mobModel:WaitForChild('Animations')
+
+    local idleAnim = animCont:LoadAnimation(anims.Idle)
+    local attackedAnim = animCont:LoadAnimation(anims.Attacked)
 end
 
 function MobClass:despawn()

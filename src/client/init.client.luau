@@ -12,9 +12,11 @@ ReplicaController.RequestData() -- INIT ONCE FOR ENTIRE CLIENT
 local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 local MobClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 
+local HelperFunctions = require(ReplicatedStorage.Shared.HelperFunctions.HelperFunctions)
+
 -- VARIABLES
 local Player = Players.LocalPlayer
-
+local Weapons = {}
 
 -- FUNCTIONS
 ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
@@ -24,15 +26,24 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     if isLocal then 
         -- Grabs init replicaData, spawns weapons for it
         for UUID, weapon in pairs(replicaData.Weapons) do
-            WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
+            local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
+            table.insert(Weapons, weaponInstance)
         end
 
         Replica:ListenToChange({'Weapons'}, function(new_value, old_value)
             print('[Client Init] Data Has Been Changed, New Replica Data: ', new_value)
             -- When changed, does it again
-            for UUID, weapon in pairs(new_value) do
-                WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
-                
+
+            local additions, deletions = HelperFunctions.compareTables(new_value, old_value)
+            
+           -- for i, weapon in (deletions) do
+            --    weapon:despawn()
+            --    Weapons[i] = nil    
+           -- end
+
+            for i, weapon in (additions) do
+                local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
+                table.insert(Weapons, weaponInstance)
             end
             -- Create comparison function to see what changed, then reflect as such
         end)

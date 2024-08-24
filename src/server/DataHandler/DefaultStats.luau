@@ -6,29 +6,32 @@ return {
         weaponType = 'Sword',
         equipped = true
         },
-
-        ['Default1'] = {
-            weaponName = 'Superior Wooden Sword',
-            weaponType = 'Sword',
-            equipped = true
-        },
-
         ['Default2'] = {
-            weaponName = 'Superior Iron Sword',
+            weaponName = 'Wooden Sword',
             weaponType = 'Sword',
             equipped = true
         },
-
         ['Default3'] = {
-            weaponName = 'Superior Wooden Sword',
+            weaponName = 'Wooden Sword',
             weaponType = 'Sword',
             equipped = true
         },
         ['Default4'] = {
-            weaponName = 'Iron Sword',
+            weaponName = 'Wooden Sword',
             weaponType = 'Sword',
             equipped = true
         },
+        ['Default5'] = {
+            weaponName = 'Wooden Sword',
+            weaponType = 'Sword',
+            equipped = true
+        },
+        ['Default6'] = {
+            weaponName = 'Wooden Sword',
+            weaponType = 'Sword',
+            equipped = true
+        },
+
     },
     MaxWeaponsEquipped = 4,
     WeaponStorageMax = 50,

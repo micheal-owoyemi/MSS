@@ -78,7 +78,7 @@ end
 function WeaponClass:engageMob(target: MeshPart)
     self.engaged = true
     self.target = target
-    self:setupTargetDetection()
+   -- self:setupTargetDetection()
     RunService:UnbindFromRenderStep('Weapon Render')
 
     local function mobWeaponRender(dt)
@@ -142,7 +142,7 @@ function WeaponClass:setUpInteractionDetection(player: Player)
     end
 end
 
-function WeaponClass:updateCursor(player: Player) -- MAKE THIS BETTER!!
+function WeaponClass:updateCursor(player: Player)
     local lastMobInstance = nil
     if player and player:GetMouse() then
         local playerMouse = player:GetMouse()
@@ -186,8 +186,12 @@ function WeaponClass:updateCursor(player: Player) -- MAKE THIS BETTER!!
 end
 
 
-function WeaponClass:interState()
-    
+function WeaponClass:despawn()
+    self.weaponModel:Destroy()
+
+    setmetatable(self, nil)
+    table.clear(self)
+    table.freeze(self)
 end
 
 return WeaponClass

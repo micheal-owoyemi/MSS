@@ -3,12 +3,17 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 
 -- MODULES
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
+local Attack = require(ReplicatedStorage.Shared.AttackTypes.Sword)
 
 -- VARIABLES
 local rayParams = RaycastParams.new()
 local rayDirection = Vector3.new(0, -500, 0)
 
 local weaponsFolder = workspace:WaitForChild('Weapons')
+
+local lastTick = tick()
+
+-- REMOTES
 
 -- FUNCTIONS
 local function BlockCast(weapon)
@@ -20,6 +25,10 @@ local function BlockCast(weapon)
     )
 
     return rayResult
+end
+
+local function absDistance(pointA, pointB)
+    return math.abs(math.abs(pointA) - math.abs(pointB))
 end
 
 local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, offset)
@@ -64,8 +73,21 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
         local targetCFrame = CFrame.new(mobInstance.Position.X, 0, mobInstance.Position.Z) * mobInstance.CFrame.Rotation * CFrame.new(X, Y, Z + zOffset)
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
+
+        local distance = absDistance(targetCFrame.X,  Weapon.PrimaryPart.CFrame.X)
+
+        if distance < 1 then
+            local currentTick = tick()
+            
+            if currentTick - lastTick >= 5 then
+                lastTick = tick()
+                print('ATTACKED')
+            end
+        end
     end
 end
+
+
 
 local OFFSET = 2
 
