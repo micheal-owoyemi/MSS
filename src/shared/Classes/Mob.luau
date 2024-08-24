@@ -12,6 +12,7 @@ local Players = game:GetService('Players')
 
 -- MODULES
 local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
+local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
 local Trove = require(ReplicatedStorage.Shared.Trove)
  
 -- FUNCTIONS
@@ -26,7 +27,7 @@ function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
         folder =  workspace:WaitForChild('Zones')[mobZone].Mobs,
 
         cooldown = false,
-        engaged = false,
+        isEngaged = false,
         damageDoneByPlayers = {},
 
         trove = Trove.new()
@@ -59,31 +60,134 @@ function MobClass:spawn()
     end
 end
 
-function MobClass:engaged()
+function MobClass:engaged(Player, playerWeapons)
     local animCont = self.mobModel.AnimationController
     local anims = self.mobModel:WaitForChild('Animations')
 
     local idleAnim = animCont:LoadAnimation(anims.Idle)
-    local engagedAnim = animCont:LoadAnimation(anims.Engaged)
+    local engagedAnim = animCont:LoadAnimation(anims:WaitForChild('Engaged'))
 
-    if self.mobHealth == MobConfig[self.mobZone][self.mobName].Health then
-        if idleAnim.IsPlaying then 
-            idleAnim.Looped = false
-            --idleAnim:Stop()
-            engagedAnim:Play()
-            task.wait(engagedAnim.Length)
-            idleAnim.Looped = true
-            idleAnim:Play()
+    if self.currentHealth == self.mobHealth and self.damageDoneByPlayers[Player.UserId] == nil then
+        self.damageDoneByPlayers[Player.UserId] = 0
+
+        self.mobModel.Mesh.Attachment.Health.Enabled = true
+        self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+
+        idleAnim.Looped = false
+        idleAnim:Stop()
+
+        engagedAnim:Play()
+        task.wait(engagedAnim.Length)
+        engagedAnim:Stop()
+
+        idleAnim.Looped = true
+        idleAnim:Play()
+    end 
+
+    print(playerWeapons)
+    self:attacked(Player, playerWeapons)
+
+    self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+end
+
+function MobClass:dealDamage(Player, playerWeapons)
+    if playerWeapons and Player then
+        for _, weapon in playerWeapons do
+            if self.currentHealth <= 0 then
+                return
+            else
+                self.currentHealth -= WeaponConfig[weapon.weaponType][weapon.weaponName].Damage
+                self.damageDoneByPlayers[Player.UserId] += WeaponConfig[weapon.weaponType][weapon.weaponName].Damage
+            end
         end
     end
 end
 
-function MobClass:attacked()
+function MobClass:attacked(Player, playerWeapons)
+    -- NORMAL ATTACK
+    if self.currentHealth > 0 and self.currentHealth > self.mobHealth / 10 then
+
+        self:dealDamage(Player, playerWeapons)
+
+        local animCont = self.mobModel.AnimationController
+        local anims = self.mobModel:WaitForChild('Animations')
+    
+        local idleAnim = animCont:LoadAnimation(anims.Idle)
+        local attackedAnim = animCont:LoadAnimation(anims.Attacked)
+    
+        idleAnim.Looped = false
+        idleAnim:Stop()
+    
+        attackedAnim:Play()
+        task.wait(attackedAnim.Length)
+        attackedAnim:Stop()
+    
+        idleAnim.Looped = true
+        idleAnim:Play()
+    end
+
+    -- DIZZY TRIGGER
+    if self.currentHealth <= self.mobHealth / 10 and self.currentHealth > 0 then
+
+        self:dealDamage(Player, playerWeapons)
+
+        local animCont = self.mobModel.AnimationController
+        local anims = self.mobModel:WaitForChild('Animations')
+    
+        local idleAnim = animCont:LoadAnimation(anims.Idle)
+        local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
+
+        idleAnim.Looped = false
+        idleAnim:Stop()
+
+        dizzyAnim.Looped = true
+        dizzyAnim:Play()
+    end
+
+    -- DEATH TRIGGER
+    if self.currentHealth <= 0 then
+        self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+        self:mobDeath()
+        return
+    end
+end
+
+function MobClass:mobDeath()
+
+    self.mobModel.Mesh.Attachment.MobNameGUI.MobName.Text = '[ DEFEATED ]'
+    self.mobModel.Mesh.Attachment.MobNameGUI.MobName.TextColor3 = Color3.new(170, 0, 0)
+
     local animCont = self.mobModel.AnimationController
     local anims = self.mobModel:WaitForChild('Animations')
 
-    local idleAnim = animCont:LoadAnimation(anims.Idle)
-    local attackedAnim = animCont:LoadAnimation(anims.Attacked)
+    local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
+    local deathAnim = animCont:LoadAnimation(anims.Death)
+
+    dizzyAnim.Looped = false
+    dizzyAnim:Stop()
+
+    deathAnim:Play()
+    task.wait(3)
+    print(self.damageDoneByPlayers)
+    -- Disengage all players engaged
+    -- FIRE REWARD DISPENSTION
+
+    self:despawn()
+
+end
+
+
+function MobClass:updateHPBar(healthBar, currentHealth, totalHealth)
+    if healthBar then
+        local healthBarSize = currentHealth / totalHealth
+
+        if currentHealth < 0 then
+            healthBar.HealthGUI.HealthNum.Text = (0 ..' / '.. totalHealth)
+        else
+            healthBar.HealthGUI.HealthNum.Text = (math.floor(currentHealth) ..' / '.. math.floor(totalHealth))
+            healthBar.HealthGUI.HealthBar.Size = UDim2.new(healthBarSize, 0, 1, 0)
+        end
+    end
 end
 
 function MobClass:despawn()
@@ -93,5 +197,7 @@ function MobClass:despawn()
     table.clear(self)
     table.freeze(self)
 end
+
+
 
 return MobClass

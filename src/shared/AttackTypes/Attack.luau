@@ -2,29 +2,26 @@
 
 --[[
 
-    Check if destination has been reached
-    Deal damage per cooldown
     Play animation everytime damage is dealt
     Keep track of damage dealt
 
 ]]
 
-local Sword
 
 -- SERVICES
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 -- MODULES
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
+
 -- VARIABLES
+local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
 
-local function attack()
-
-    print('yea')
-
-    wait(10)
+local function attack(mobInstance)
+    attackMobRE:FireServer(mobInstance)
 end
 
-return function()
-    attack()
+return function(mobInstance)
+    attack(mobInstance)
 end

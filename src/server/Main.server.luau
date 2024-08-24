@@ -6,14 +6,17 @@ local Players = game:GetService('Players')
 -- MODULES
 local DataHandler = require(ServerScriptService.Server.DataHandler)
 local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
---local MobClass = require(ReplicatedStorage.Shared.Classes.Mob)
---local ZoneHandler = require(ReplicatedStorage.Shared.Classes.ZoneHandler)
+
 local MobManager = require(ReplicatedStorage.Shared.Managers.Mob)
 
 -- VARIABLES
 local mobManagerInstance = MobManager.new()
 
+local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
 -- FUNCTIONS
+
+
 game.Players.PlayerAdded:Connect(function(Player)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
@@ -30,3 +33,24 @@ end)
 
 
 mobManagerInstance:setUpZoneSpawning()
+
+
+local function attackMobREConnection(Player, mobInstance)
+    local profile = DataHandler:getProfileAsync(Player)
+    if not profile then
+        return
+    end
+
+    local attackingWeapons = {}
+
+    for _, weapon in profile.Replica.Data.Weapons do
+        if weapon.equipped then
+            table.insert(attackingWeapons, weapon)
+        end
+    end
+
+    print(attackingWeapons)
+    mobManagerInstance:attackMob(Player, mobInstance, attackingWeapons)
+end
+
+attackMobRE.OnServerEvent:Connect(attackMobREConnection)

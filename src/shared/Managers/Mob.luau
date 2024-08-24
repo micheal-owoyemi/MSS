@@ -9,6 +9,8 @@ MobManager.__index = MobManager
 -- SERVICES
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local ServerScriptService = game:GetService('ServerScriptService')
+
+
 -- MODULES
 local DataHandler = require(ServerScriptService.Server.DataHandler)
 
@@ -20,6 +22,7 @@ local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
 
 -- VARIABLES
 local zones = workspace:WaitForChild('Zones')
+
 
 -- FUNCTIONS
 
@@ -109,7 +112,7 @@ function MobManager:setUpZoneDespawning()
     end)]]
 end
  
-function MobManager:attackMob(Player, mobInstance)
+function MobManager:attackMob(Player, mobInstance, playerWeapons) --Player, mobInstance
     --[[
     check HP if > 0
     Server Check equipped weapons
@@ -120,8 +123,16 @@ function MobManager:attackMob(Player, mobInstance)
     despawn
     dispense rewards
         ]]
-
     
+    for _, mob in self.mobInstances do
+        if mob.mobModel == mobInstance.Parent then
+            if not mob.isEngaged and playerWeapons then
+                print(playerWeapons)
+                mob:engaged(Player, playerWeapons)
+            end
+        end
+    end
+
 end
 
 function MobManager:disengageMob()
@@ -131,5 +142,12 @@ end
 function MobManager:Destroy()
     self:Destroy()
 end
+
+
+-- EVENT CONNECTIONS
+
+
+
+
 
 return MobManager

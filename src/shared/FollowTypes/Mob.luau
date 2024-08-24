@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 
 -- MODULES
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
-local Attack = require(ReplicatedStorage.Shared.AttackTypes.Sword)
+local Attack = require(ReplicatedStorage.Shared.AttackTypes.Attack)
 
 -- VARIABLES
 local rayParams = RaycastParams.new()
@@ -79,9 +79,9 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
         if distance < 1 then
             local currentTick = tick()
             
-            if currentTick - lastTick >= 5 then
+            if currentTick - lastTick >= 3 then
                 lastTick = tick()
-                print('ATTACKED')
+                Attack(mobInstance)
             end
         end
     end

@@ -4,7 +4,7 @@ return {
     },
     ['Settings'] = {
         MinimumDistance = 100,
-        MobCursor = 'rbxassetid://18277616891'
+        MobCursor = 'rbxassetid://87552740640507'
     }
 }
 
