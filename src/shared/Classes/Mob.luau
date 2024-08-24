@@ -164,7 +164,6 @@ function MobClass:mobDeath()
     local deathAnim = animCont:LoadAnimation(anims.Death)
 
     dizzyAnim.Looped = false
-    dizzyAnim:Stop()
 
     deathAnim:Play()
     task.wait(3)
