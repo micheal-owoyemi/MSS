@@ -19,7 +19,9 @@ local WeaponConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
 
 local function attack(mobInstance)
-    attackMobRE:FireServer(mobInstance)
+    if mobInstance then
+        attackMobRE:FireServer(mobInstance)
+    end
 end
 
 return function(mobInstance)

@@ -35,6 +35,7 @@ function MobManager.new()
 
     return self
 end
+
 function MobManager:checkEquipped()
 
 end
@@ -112,31 +113,15 @@ function MobManager:setUpZoneDespawning()
     end)]]
 end
  
-function MobManager:attackMob(Player, mobInstance, playerWeapons) --Player, mobInstance
-    --[[
-    check HP if > 0
-    Server Check equipped weapons
-    everytime damage dealt update damageDoneByPlayers table
+function MobManager:attackMob(Player, mobInstance, playerWeapons)
 
-    increments play dizzy
-    on final threshold loop dizzy then play death
-    despawn
-    dispense rewards
-        ]]
-    
     for _, mob in self.mobInstances do
         if mob.mobModel == mobInstance.Parent then
             if not mob.isEngaged and playerWeapons then
-                print(playerWeapons)
                 mob:engaged(Player, playerWeapons)
             end
         end
     end
-
-end
-
-function MobManager:disengageMob()
-    
 end
 
 function MobManager:Destroy()

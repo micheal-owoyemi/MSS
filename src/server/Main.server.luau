@@ -49,7 +49,6 @@ local function attackMobREConnection(Player, mobInstance)
         end
     end
 
-    print(attackingWeapons)
     mobManagerInstance:attackMob(Player, mobInstance, attackingWeapons)
 end
 

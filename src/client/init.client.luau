@@ -16,7 +16,11 @@ local HelperFunctions = require(ReplicatedStorage.Shared.HelperFunctions.HelperF
 
 -- VARIABLES
 local Player = Players.LocalPlayer
+local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+
 local Weapons = {}
+
+local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
 
 -- FUNCTIONS
 ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
@@ -50,3 +54,11 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     end
 end)
 
+
+local function onMobDeath(mobInstance)
+    for _, weapon in Weapons do
+        weapon:disengageMob(mobInstance)
+    end
+end
+
+MobDeathRE.OnClientEvent:Connect(onMobDeath)

@@ -15,6 +15,11 @@ local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
 local Trove = require(ReplicatedStorage.Shared.Trove)
  
+-- VARIABLES
+local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+
+local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
+
 -- FUNCTIONS
 function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
     local self = setmetatable({
@@ -84,10 +89,11 @@ function MobClass:engaged(Player, playerWeapons)
         idleAnim:Play()
     end 
 
-    print(playerWeapons)
     self:attacked(Player, playerWeapons)
 
-    self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+    if self.mobModel then
+        self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+    end
 end
 
 function MobClass:dealDamage(Player, playerWeapons)
@@ -104,51 +110,54 @@ function MobClass:dealDamage(Player, playerWeapons)
 end
 
 function MobClass:attacked(Player, playerWeapons)
+    if self and self.mobModel and self.mobModel and self.mobModel.Mesh then
+        
     -- NORMAL ATTACK
-    if self.currentHealth > 0 and self.currentHealth > self.mobHealth / 10 then
+        if self.currentHealth > 0 and self.currentHealth > self.mobHealth / 10 then
 
-        self:dealDamage(Player, playerWeapons)
+            self:dealDamage(Player, playerWeapons)
 
-        local animCont = self.mobModel.AnimationController
-        local anims = self.mobModel:WaitForChild('Animations')
-    
-        local idleAnim = animCont:LoadAnimation(anims.Idle)
-        local attackedAnim = animCont:LoadAnimation(anims.Attacked)
-    
-        idleAnim.Looped = false
-        idleAnim:Stop()
-    
-        attackedAnim:Play()
-        task.wait(attackedAnim.Length)
-        attackedAnim:Stop()
-    
-        idleAnim.Looped = true
-        idleAnim:Play()
-    end
+            local animCont = self.mobModel.AnimationController
+            local anims = self.mobModel:WaitForChild('Animations')
+        
+            local idleAnim = animCont:LoadAnimation(anims.Idle)
+            local attackedAnim = animCont:LoadAnimation(anims.Attacked)
+        
+            idleAnim.Looped = false
+            idleAnim:Stop()
+        
+            attackedAnim:Play()
+            task.wait(attackedAnim.Length)
 
-    -- DIZZY TRIGGER
-    if self.currentHealth <= self.mobHealth / 10 and self.currentHealth > 0 then
+        
+            idleAnim.Looped = true
+            idleAnim:Play()
+        end
 
-        self:dealDamage(Player, playerWeapons)
+        -- DIZZY TRIGGER
+        if self.currentHealth <= self.mobHealth / 10  and self.currentHealth > 0 then
 
-        local animCont = self.mobModel.AnimationController
-        local anims = self.mobModel:WaitForChild('Animations')
-    
-        local idleAnim = animCont:LoadAnimation(anims.Idle)
-        local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
+            self:dealDamage(Player, playerWeapons)
 
-        idleAnim.Looped = false
-        idleAnim:Stop()
+            local animCont = self.mobModel.AnimationController
+            local anims = self.mobModel:WaitForChild('Animations')
+        
+            local idleAnim = animCont:LoadAnimation(anims.Idle)
+            local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
 
-        dizzyAnim.Looped = true
-        dizzyAnim:Play()
-    end
+            idleAnim.Looped = false
+            idleAnim:Stop()
 
-    -- DEATH TRIGGER
-    if self.currentHealth <= 0 then
-        self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
-        self:mobDeath()
-        return
+            dizzyAnim.Looped = true
+            dizzyAnim:Play()
+        end
+
+        -- DEATH TRIGGER
+        if self.currentHealth <= 0 then
+            self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+            self:mobDeath()
+            return
+        end
     end
 end
 
@@ -167,12 +176,21 @@ function MobClass:mobDeath()
 
     deathAnim:Play()
     task.wait(3)
-    print(self.damageDoneByPlayers)
-    -- Disengage all players engaged
+    
+    if self.damageDoneByPlayers then
+        for i, player in self.damageDoneByPlayers do
+            MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
+        end
+    end
+
     -- FIRE REWARD DISPENSTION
 
-    self:despawn()
-
+    if self.mobModel ~= nil then
+        self.mobModel:Destroy()
+        self:despawn()
+    else
+        return
+    end
 end
 
 
@@ -189,10 +207,14 @@ function MobClass:updateHPBar(healthBar, currentHealth, totalHealth)
     end
 end
 
-function MobClass:despawn()
-    self.mobModel:Destroy()
+function MobClass:dispenseRewards(damageDoneByPlayers)
+    
+end
 
-    setmetatable(self, nil)
+function MobClass:despawn()
+
+
+    --setmetatable(self, nil)
     table.clear(self)
     table.freeze(self)
 end

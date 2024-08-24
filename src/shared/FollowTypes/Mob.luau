@@ -79,7 +79,7 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
         if distance < 1 then
             local currentTick = tick()
             
-            if currentTick - lastTick >= 3 then
+            if currentTick - lastTick >= 3 and mobInstance then
                 lastTick = tick()
                 Attack(mobInstance)
             end
