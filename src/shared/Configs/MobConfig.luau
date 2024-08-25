@@ -1,6 +1,6 @@
 return {
     ['Zone 1'] = {
-        ['Chest Mimic'] = {Health = 100, Value = 100},
+        ['Chest Mimic'] = {Health = 100, Value = 100, Cooldown = 10},
     },
     ['Settings'] = {
         MinimumDistance = 100,

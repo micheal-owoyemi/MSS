@@ -169,15 +169,17 @@ function WeaponClass:updateCursor(player: Player)
                 else
                     UserInputService.MouseIcon = ''
                     if lastMobInstance then
-                        lastMobInstance.Highlight.Enabled = false
-                        lastMobInstance = nil
+                        if lastMobInstance.Highlight then
+                            lastMobInstance.Highlight.Enabled = false
+                            lastMobInstance = nil
+                        end
                     end
                     
                 end
             else
                 UserInputService.MouseIcon = ''
                 if lastMobInstance ~= nil then
-                    if lastMobInstance.Highlight then
+                    if lastMobInstance and lastMobInstance.Highlight ~= nil then
                         lastMobInstance.Highlight.Enabled = false
                         lastMobInstance = nil
                     end

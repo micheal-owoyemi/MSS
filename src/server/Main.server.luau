@@ -16,7 +16,7 @@ local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
 -- FUNCTIONS
 
-
+-- On Player Join Give Weapons
 game.Players.PlayerAdded:Connect(function(Player)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
@@ -31,10 +31,10 @@ game.Players.PlayerAdded:Connect(function(Player)
 
 end)
 
-
+-- Spawns Mobs For Each Zone
 mobManagerInstance:setUpZoneSpawning()
 
-
+-- Remote Event for Mob Attacking
 local function attackMobREConnection(Player, mobInstance)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
@@ -50,6 +50,11 @@ local function attackMobREConnection(Player, mobInstance)
     end
 
     mobManagerInstance:attackMob(Player, mobInstance, attackingWeapons)
+end
+
+-- Remote Event for Mob Defeat Reward Distribution
+local function mobRewardDistribution(Player, damageDone, mobValue)
+    
 end
 
 attackMobRE.OnServerEvent:Connect(attackMobREConnection)
