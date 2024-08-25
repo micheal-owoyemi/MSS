@@ -70,7 +70,7 @@ function WeaponClass:disengageMob(target: MeshPart)
         self.target = nil
         self.engaged = false
         RunService:UnbindFromRenderStep("Mob Weapon Render")
-        
+
         self:setUpMovementDetection()
     end
 end
@@ -157,7 +157,7 @@ function WeaponClass:updateCursor(player: Player)
                     local distance = player:DistanceFromCharacter(target.Position)
                     if distance <= mobMinDistance then
 
-                        if lastMobInstance then
+                        if lastMobInstance ~= nil then
                             lastMobInstance.Highlight.Enabled = false
                             lastMobInstance = nil
                         end
@@ -178,11 +178,15 @@ function WeaponClass:updateCursor(player: Player)
                 end
             else
                 UserInputService.MouseIcon = ''
-                if lastMobInstance ~= nil then
-                    if lastMobInstance and lastMobInstance.Highlight ~= nil then
+                if lastMobInstance then
+                    if lastMobInstance.Highlight then
                         lastMobInstance.Highlight.Enabled = false
                         lastMobInstance = nil
+                    else
+                        return
                     end
+                else
+                    return
                 end
             end
         end)

@@ -6,12 +6,15 @@ local MobClass = {}
 MobClass.__index = MobClass
 
 -- SERVICES
+local ServerScriptService = game:GetService('ServerScriptService')
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
 local TweenService = game:GetService('TweenService')
 
 -- MODULES
+local DataHandler = require(ServerScriptService.Server.DataHandler)
+
 local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
 local Trove = require(ReplicatedStorage.Shared.Trove)
@@ -29,6 +32,7 @@ function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
         spawnLocation = spawnLocation,
         mobZone = mobZone, 
         mobName = mobName,
+        mobValue = MobConfig[mobZone][mobName].Value,
         mobModel = ReplicatedStorage.Shared.Assets.Mobs[mobZone][mobName].Model:Clone(),
         folder =  workspace:WaitForChild('Zones')[mobZone].Mobs,
 
@@ -75,7 +79,6 @@ function MobClass:engaged(Player, playerWeapons)
         local engagedAnim = animCont:LoadAnimation(anims.Engaged)
 
         if self.currentHealth == self.mobHealth and self.damageDoneByPlayers[Player.UserId] == nil then
-            print('[Prompted engaged] :',self.currentHealth, self.mobHealth, self.damageDoneByPlayers[Player.UserId])
             self.damageDoneByPlayers[Player.UserId] = 0
 
             self.mobModel.Mesh.Attachment.Health.Enabled = true
@@ -85,8 +88,6 @@ function MobClass:engaged(Player, playerWeapons)
             idleAnim:Stop()
 
             engagedAnim:Play()
-
-            print('Engaged Animation Length: ', engagedAnim.Length)
             task.wait(engagedAnim.Length)
             engagedAnim:Stop()
 
@@ -96,7 +97,7 @@ function MobClass:engaged(Player, playerWeapons)
 
         if self.damageDoneByPlayers[Player.UserId] ~= nil then
             self:attacked(Player, playerWeapons)
-            print('[Did not prompt engaged] :',self.currentHealth, self.mobHealth, self.damageDoneByPlayers[Player.UserId])
+
         end
     
         if self.mobModel then
@@ -173,7 +174,7 @@ function MobClass:mobDeath()
     dizzyAnim:Stop()
 
     deathAnim:Play()
-    
+
     self:tweenMeshTransparency(3)
     task.wait(3)
 
@@ -182,12 +183,11 @@ function MobClass:mobDeath()
         for i, player in self.damageDoneByPlayers do
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
         end
+
+        self:dispenseRewards(self.damageDoneByPlayers)
     end
 
-    -- FIRE REWARD DISPENSTION
-
     if self.mobModel ~= nil then
-
         self:despawn()
     else
         return
@@ -256,8 +256,21 @@ function MobClass:tweenMeshTransparency(deathDur)
     tween:Play()
 end
 
+-- Remote Event for Mob Defeat Reward Distribution
 function MobClass:dispenseRewards(damageDoneByPlayers)
-    
+    if damageDoneByPlayers and self.mobValue and self.mobHealth then
+        for i, damage in damageDoneByPlayers do
+            local profile = DataHandler:getProfileAsync(Players:GetPlayerByUserId(i))
+            if not profile then
+                return
+            end
+        
+            local shareOfReward = (damage / self.mobHealth) * self.mobValue
+        
+            profile:giveCoins(shareOfReward)
+        
+        end
+    end
 end
 
 

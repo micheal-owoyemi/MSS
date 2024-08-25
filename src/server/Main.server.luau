@@ -13,7 +13,9 @@ local MobManager = require(ReplicatedStorage.Shared.Managers.Mob)
 local mobManagerInstance = MobManager.new()
 
 local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+
 local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
+
 -- FUNCTIONS
 
 -- On Player Join Give Weapons
@@ -52,9 +54,5 @@ local function attackMobREConnection(Player, mobInstance)
     mobManagerInstance:attackMob(Player, mobInstance, attackingWeapons)
 end
 
--- Remote Event for Mob Defeat Reward Distribution
-local function mobRewardDistribution(Player, damageDone, mobValue)
-    
-end
 
 attackMobRE.OnServerEvent:Connect(attackMobREConnection)

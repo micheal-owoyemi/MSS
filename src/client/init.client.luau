@@ -23,6 +23,7 @@ local Weapons = {}
 local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
 
 -- FUNCTIONS
+
 ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     local isLocal = Replica.Tags.Player == Player
     local replicaData = Replica.Data
@@ -51,10 +52,16 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
             end
             -- Create comparison function to see what changed, then reflect as such
         end)
+
+        Replica:ListenToChange({'Coins'}, function(new_value, old_value)
+            print(new_value)
+        end)
     end
 end)
 
 
+
+-- RE to disengage player weapons on target death
 local function onMobDeath(mobInstance)
     for _, weapon in Weapons do
         weapon:disengageMob(mobInstance)
