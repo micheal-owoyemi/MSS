@@ -13,13 +13,13 @@ local coinDictionary = {}
 
 -- FUNCTIONS
 
-function CoinDrop.spawnMob(originCFrame, coinObject, coinAmount)
+function CoinDrop.spawn(originCFrame, coinObject, coinAmount, Player)
     local coinInstances = coinAmount / 10
 
     for i = 0, coinInstances do
         local coin = coinObject:Clone()
         coin.CFrame = originCFrame
-        coin.Parent = workspace:WaitForChild('Coin Drops')
+        coin.Parent = workspace:WaitForChild('Coin Spawn')
 
         local randomX = {math.random(-10, -2), math.random(2, 10)}
         local randomZ = {math.random(-10, -2), math.random(2, 10)}
@@ -27,12 +27,31 @@ function CoinDrop.spawnMob(originCFrame, coinObject, coinAmount)
         local velocity = Vector3.new(randomX[math.random(1, 2)], math.random(50, 60), randomZ[math.random(1, 2)])
 
         coin.AssemblyLinearVelocity = velocity
-        
+
+        CoinDrop.goToPlayer(Player, coin)
     end
 end
 
-function CoinDrop.goToPlayer(Player)
-    
+function CoinDrop.goToPlayer(Player, coinInstance)
+    local character = Player.Character or Player.CharacterAdded:Wait()
+    local humanoidRootPart = character:WaitForChild('HumanoidRootPart')
+    local magnitude = (humanoidRootPart.Position - coinInstance.Position).Magnitude
+
+    if coinInstance:IsA('Part') and coinInstance.Name == 'CoinDrop' then
+        coinInstance.CanCollide = false
+
+        local tweenInfo = TweenInfo.new(magnitude*0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, false, 0)
+
+        local tween = TweenService:Create(coinInstance, tweenInfo, {Position = humanoidRootPart.Position})
+        tween:Play()
+
+        tween.Completed:Connect(function()
+            local newTrove = Trove.new()
+            newTrove.Add(newTrove, coinInstance)
+            coinInstance:Destroy()
+        end)
+
+    end
 end
 
 return CoinDrop

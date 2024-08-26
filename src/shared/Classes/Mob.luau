@@ -17,6 +17,8 @@ local DataHandler = require(ServerScriptService.Server.DataHandler)
 
 local MobConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
+
+local CoinDrop = require(ReplicatedStorage.Shared.Classes.CoinDrop)
 local Trove = require(ReplicatedStorage.Shared.Trove)
  
 -- VARIABLES
@@ -268,7 +270,10 @@ function MobClass:dispenseRewards(damageDoneByPlayers)
             local shareOfReward = (damage / self.mobHealth) * self.mobValue
         
             profile:giveCoins(shareOfReward)
-        
+            
+            local coinDropModel = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.CoinDrop:Clone()
+            local coinDropInstance = CoinDrop.spawn(self.mobModel.PrimaryPart.CFrame, coinDropModel, shareOfReward, Players:GetPlayerByUserId(i))
+
         end
     end
 end
