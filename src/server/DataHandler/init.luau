@@ -50,8 +50,6 @@ local function PlayerAdded(player)
             })
             
             local playerProfile = PlayerProfile.new(profile, player, replica)
-            playerProfile:giveCoins(10)
-            print(playerProfile:getCoins())
             -- A profile has been successfully loaded:
         else
             -- Player left before the profile loaded:

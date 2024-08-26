@@ -1,17 +1,13 @@
 
 -- SERVICES
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
-local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
-local UserInputService = game:GetService('UserInputService')
 
 -- MODULE(S)
 local ReplicaController = require(ReplicatedStorage.Shared.ReplicaController)
 ReplicaController.RequestData() -- INIT ONCE FOR ENTIRE CLIENT
 
 local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
-local MobClass = require(ReplicatedStorage.Shared.Classes.Weapon)
-
 local HelperFunctions = require(ReplicatedStorage.Shared.HelperFunctions.HelperFunctions)
 
 -- VARIABLES
@@ -22,18 +18,26 @@ local Weapons = {}
 
 local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
 
+
+
 -- FUNCTIONS
 
 ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     local isLocal = Replica.Tags.Player == Player
     local replicaData = Replica.Data
 
+    print(replicaData)
+    
     if isLocal then 
         -- Grabs init replicaData, spawns weapons for it
         for UUID, weapon in pairs(replicaData.Weapons) do
             local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
             table.insert(Weapons, weaponInstance)
         end
+
+        local coinCountUI = Player:WaitForChild('PlayerGui'):WaitForChild('CurrencyCounter').Frame.TextLabel
+        coinCountUI.Text = replicaData.Coins
+
 
         Replica:ListenToChange({'Weapons'}, function(new_value, old_value)
             print('[Client Init] Data Has Been Changed, New Replica Data: ', new_value)
@@ -54,7 +58,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
         end)
 
         Replica:ListenToChange({'Coins'}, function(new_value, old_value)
-            print(new_value)
+            coinCountUI.Text = new_value
         end)
     end
 end)

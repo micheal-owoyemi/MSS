@@ -14,7 +14,7 @@
         "$path": "src/server"
       }
     },
-
+    
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "Client": {
@@ -22,5 +22,6 @@
         }
       }
     }
+
   } 
 }
