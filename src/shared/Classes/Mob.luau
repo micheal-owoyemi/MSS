@@ -163,7 +163,7 @@ end
 
 function MobClass:mobDeath()
 
-    self.mobModel.Mesh.Attachment.MobNameGUI.MobName.Text = '[ DEFEATED ]'
+    self.mobModel.Mesh.Attachment.MobNameGUI.MobName.Text = ''
     self.mobModel.Mesh.Attachment.MobNameGUI.MobName.TextColor3 = Color3.new(170, 0, 0)
 
     local animCont = self.mobModel.AnimationController
@@ -242,6 +242,7 @@ function MobClass:updateHPBar(healthBar, currentHealth, totalHealth)
 
         if currentHealth < 0 then
             healthBar.HealthGUI.HealthNum.Text = (0 ..' / '.. totalHealth)
+            self.mobModel.Mesh.Attachment.Health.Enabled = false
         else
             healthBar.HealthGUI.HealthNum.Text = (math.floor(currentHealth) ..' / '.. math.floor(totalHealth))
             healthBar.HealthGUI.HealthBar.Size = UDim2.new(healthBarSize, 0, 1, 0)
@@ -268,12 +269,14 @@ function MobClass:dispenseRewards(damageDoneByPlayers)
             end
         
             local shareOfReward = (damage / self.mobHealth) * self.mobValue
-        
-            profile:giveCoins(shareOfReward)
             
+                        
             local coinDropModel = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.CoinDrop:Clone()
             local coinDropInstance = CoinDrop.spawn(self.mobModel.PrimaryPart.CFrame, coinDropModel, shareOfReward, Players:GetPlayerByUserId(i))
 
+            task.wait()
+
+            profile:giveCoins(shareOfReward)
         end
     end
 end

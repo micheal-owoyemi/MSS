@@ -58,7 +58,15 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
         end)
 
         Replica:ListenToChange({'Coins'}, function(new_value, old_value)
-            coinCountUI.Text = new_value
+
+            if new_value > old_value then
+                local diff = new_value - old_value
+                coinCountUI.Text = ('+ '..diff)
+
+                task.wait(2)
+                
+                coinCountUI.Text = new_value
+            end
         end)
     end
 end)

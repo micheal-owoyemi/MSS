@@ -15,6 +15,7 @@ local coinDictionary = {}
 
 function CoinDrop.spawn(originCFrame, coinObject, coinAmount, Player)
     local coinInstances = coinAmount / 10
+    local coinInstanceTable = {}
 
     for i = 0, coinInstances do
         local coin = coinObject:Clone()
@@ -24,10 +25,16 @@ function CoinDrop.spawn(originCFrame, coinObject, coinAmount, Player)
         local randomX = {math.random(-10, -2), math.random(2, 10)}
         local randomZ = {math.random(-10, -2), math.random(2, 10)}
 
-        local velocity = Vector3.new(randomX[math.random(1, 2)], math.random(50, 60), randomZ[math.random(1, 2)])
+        local velocity = Vector3.new(randomX[math.random(1, 10)], math.random(50, 100), randomZ[math.random(1, 10)])
 
         coin.AssemblyLinearVelocity = velocity
 
+        table.insert(coinInstanceTable, coin)
+    end
+
+    task.wait()
+
+    for _, coin in coinInstanceTable do
         CoinDrop.goToPlayer(Player, coin)
     end
 end
@@ -40,7 +47,7 @@ function CoinDrop.goToPlayer(Player, coinInstance)
     if coinInstance:IsA('Part') and coinInstance.Name == 'CoinDrop' then
         coinInstance.CanCollide = false
 
-        local tweenInfo = TweenInfo.new(magnitude*0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, false, 0)
+        local tweenInfo = TweenInfo.new(magnitude*0.01, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, false, 0)
 
         local tween = TweenService:Create(coinInstance, tweenInfo, {Position = humanoidRootPart.Position})
         tween:Play()
