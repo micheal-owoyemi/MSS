@@ -187,7 +187,7 @@ function MobClass:mobDeath()
     if self.damageDoneByPlayers then 
         for i, player in self.damageDoneByPlayers do
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
-            MobDeathFXRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh.Position)
+            MobDeathFXRE:FireAllClients(self.mobModel.Mesh.Position)
         end
 
         self:dispenseRewards(self.damageDoneByPlayers)
