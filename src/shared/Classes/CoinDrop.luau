@@ -22,7 +22,7 @@ function CoinDrop.spawn(originCFrame, coinAmount, Player)
     for i = 0, coinInstances do
         local coin = coinObject:Clone()
         coin.CFrame = originCFrame
-        coin.Parent = workspace:WaitForChild('Coin Spawn')
+        coin.Parent = workspace:WaitForChild('FX')
 
         local randomX = {math.random(-10, -2), math.random(2, 10)}
         local randomZ = {math.random(-10, -2), math.random(2, 10)}

@@ -10,6 +10,7 @@ local CoinDrop = require(ReplicatedStorage:WaitForChild('Shared').Classes.CoinDr
 
 -- VARIABLES
 local VFX = ReplicatedStorage.Shared.Assets:WaitForChild('VFX')
+
 local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 local CoinDropRE = RemoteEvents:WaitForChild('CoinDrop')
@@ -27,7 +28,8 @@ end
 -- MOB DEATH EXPLOSION
 
 local function onMobDeath(mobPosition)
-    local mobExplosionInstance = VFX:WaitForChild('MobExplosion')
+    local mobExplosionInstance = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.MobExplosion:Clone()
+    mobExplosionInstance.Parent = workspace:WaitForChild('FX')
     
     local newTrove = Trove.new()
     newTrove.Add(newTrove, mobExplosionInstance)
