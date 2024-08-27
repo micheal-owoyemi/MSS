@@ -49,7 +49,7 @@ function CoinDrop.goToPlayer(Player, coinInstance)
     if coinInstance:IsA('Part') and coinInstance.Name == 'CoinDrop' then
         coinInstance.CanCollide = false
 
-        local tweenInfo = TweenInfo.new(magnitude*0.01, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, false, 0)
+        local tweenInfo = TweenInfo.new(magnitude*0.01, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, false, 0) -- USE PID FOR SMOTHER TWEEN
 
         local tween = TweenService:Create(coinInstance, tweenInfo, {Position = humanoidRootPart.Position})
         tween:Play()

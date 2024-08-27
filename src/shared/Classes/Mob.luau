@@ -25,7 +25,9 @@ local Trove = require(ReplicatedStorage.Shared.Trove)
 local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
+
 local CoinDropRE = RemoteEvents.CoinDrop
+local MobDeathFXRE = RemoteEvents.MobDeathFX
 
 -- FUNCTIONS
 function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
@@ -178,13 +180,14 @@ function MobClass:mobDeath()
 
     deathAnim:Play()
 
-    self:tweenMeshTransparency(3)
-    task.wait(3)
+    self:tweenMeshTransparency(1)
+    task.wait(1)
 
     
     if self.damageDoneByPlayers then 
         for i, player in self.damageDoneByPlayers do
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
+            MobDeathFXRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh.Position)
         end
 
         self:dispenseRewards(self.damageDoneByPlayers)
