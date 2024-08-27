@@ -25,6 +25,7 @@ local Trove = require(ReplicatedStorage.Shared.Trove)
 local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
+local CoinDropRE = RemoteEvents.CoinDrop
 
 -- FUNCTIONS
 function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
@@ -181,7 +182,7 @@ function MobClass:mobDeath()
     task.wait(3)
 
     
-    if self.damageDoneByPlayers then
+    if self.damageDoneByPlayers then 
         for i, player in self.damageDoneByPlayers do
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
         end
@@ -268,15 +269,16 @@ function MobClass:dispenseRewards(damageDoneByPlayers)
                 return
             end
         
-            local shareOfReward = (damage / self.mobHealth) * self.mobValue
+            local individualReward = (damage / self.mobHealth) * self.mobValue
+
             
-                        
-            local coinDropModel = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.CoinDrop:Clone()
-            local coinDropInstance = CoinDrop.spawn(self.mobModel.PrimaryPart.CFrame, coinDropModel, shareOfReward, Players:GetPlayerByUserId(i))
+            CoinDropRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.PrimaryPart.CFrame, individualReward )
+            --local coinDropInstance = CoinDrop.spawn(self.mobModel.PrimaryPart.CFrame, individualReward, Players:GetPlayerByUserId(i))
 
             task.wait()
 
-            profile:giveCoins(shareOfReward)
+            profile:giveCoins(individualReward)
+
         end
     end
 end

@@ -13,7 +13,9 @@ local coinDictionary = {}
 
 -- FUNCTIONS
 
-function CoinDrop.spawn(originCFrame, coinObject, coinAmount, Player)
+function CoinDrop.spawn(originCFrame, coinAmount, Player)
+    local coinObject = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.CoinDrop:Clone()
+
     local coinInstances = coinAmount / 10
     local coinInstanceTable = {}
 
@@ -57,7 +59,7 @@ function CoinDrop.goToPlayer(Player, coinInstance)
             newTrove.Add(newTrove, coinInstance)
             coinInstance:Destroy()
         end)
-
+        task.wait()
     end
 end
 
