@@ -181,13 +181,13 @@ function MobClass:mobDeath()
     deathAnim:Play()
 
     self:tweenMeshTransparency(1)
-    task.wait(1)
+    MobDeathFXRE:FireAllClients(self.mobModel.Mesh.Position)
 
     
     if self.damageDoneByPlayers then 
         for i, player in self.damageDoneByPlayers do
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
-            MobDeathFXRE:FireAllClients(self.mobModel.Mesh.Position)
+
         end
 
         self:dispenseRewards(self.damageDoneByPlayers)
