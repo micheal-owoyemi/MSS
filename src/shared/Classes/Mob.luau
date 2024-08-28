@@ -22,12 +22,12 @@ local CoinDrop = require(ReplicatedStorage.Shared.Classes.CoinDrop)
 local Trove = require(ReplicatedStorage.Shared.Trove)
  
 -- VARIABLES
-local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+local RemoteEvents = ReplicatedStorage.Shared:WaitForChild('RemoteEvents')
 
-local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
-
-local CoinDropRE = RemoteEvents.CoinDrop
+local MobDeathRE = RemoteEvents.MobDeath
 local MobDeathFXRE = RemoteEvents.MobDeathFX
+local MobAttackFXRE = RemoteEvents.AttackMobFX
+local CoinDropRE = RemoteEvents.CoinDrop
 
 -- FUNCTIONS
 function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
@@ -66,7 +66,7 @@ function MobClass:spawn()
         local anims = self.mobModel:WaitForChild('Animations')
         local idleAnim = animCont:LoadAnimation(anims.Idle)
 
-        self.trove:Add(self.mobModel)
+        self.trove:Add(self.trove, self.mobModel)
 
         idleAnim.Looped = true -- Initializes with idle Anim loop
         idleAnim:Play()
@@ -83,14 +83,11 @@ function MobClass:engaged(Player, playerWeapons)
         local idleAnim = animCont:LoadAnimation(anims.Idle)
         local engagedAnim = animCont:LoadAnimation(anims.Engaged)
 
-        if self.currentHealth == self.mobHealth and self.damageDoneByPlayers[Player.UserId] == nil then
+        if self.currentHealth == self.mobHealth or self.damageDoneByPlayers[Player.UserId] == nil and not self.canBeEngaged then
             self.damageDoneByPlayers[Player.UserId] = 0
 
             self.mobModel.Mesh.Attachment.Health.Enabled = true
             self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
-
-            idleAnim.Looped = false
-            idleAnim:Stop()
 
             engagedAnim:Play()
             task.wait(engagedAnim.Length)
@@ -98,11 +95,12 @@ function MobClass:engaged(Player, playerWeapons)
 
             idleAnim.Looped = true
             idleAnim:Play()
+
+            self.canBeEngaged = true
         end 
 
-        if self.damageDoneByPlayers[Player.UserId] ~= nil then
+        if self.damageDoneByPlayers[Player.UserId] ~= nil and self.canBeEngaged then
             self:attacked(Player, playerWeapons)
-
         end
     
         if self.mobModel then
@@ -117,41 +115,29 @@ function MobClass:attacked(Player, playerWeapons)
     -- NORMAL ATTACK
         if self.currentHealth > 0 and self.currentHealth > self.mobHealth / 10 then
 
-            self:dealDamage(Player, playerWeapons)
-
             local animCont = self.mobModel.AnimationController
             local anims = self.mobModel:WaitForChild('Animations')
-        
-            local idleAnim = animCont:LoadAnimation(anims.Idle)
             local attackedAnim = animCont:LoadAnimation(anims.Attacked)
         
-            idleAnim.Looped = false
-            idleAnim:Stop()
-        
+            self:dealDamage(Player, playerWeapons)
+            self:updateHPBar(self.mobModel.Mesh.Attachment.Health, self.currentHealth, self.mobHealth)
+
             attackedAnim:Play()
             task.wait(attackedAnim.Length)
 
-        
-            idleAnim.Looped = true
-            idleAnim:Play()
         end
 
         -- DIZZY TRIGGER
         if self.currentHealth <= self.mobHealth / 10  and self.currentHealth > 0 then
-
-            self:dealDamage(Player, playerWeapons)
-
             local animCont = self.mobModel.AnimationController
             local anims = self.mobModel:WaitForChild('Animations')
-        
-            local idleAnim = animCont:LoadAnimation(anims.Idle)
             local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
-
-            idleAnim.Looped = false
-            idleAnim:Stop()
-
+        
             dizzyAnim.Looped = true
             dizzyAnim:Play()
+            task.wait(dizzyAnim.Length)
+
+            self:dealDamage(Player, playerWeapons)
         end
 
         -- DEATH TRIGGER
@@ -172,22 +158,16 @@ function MobClass:mobDeath()
     local animCont = self.mobModel.AnimationController
     local anims = self.mobModel:WaitForChild('Animations')
 
-    local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
     local deathAnim = animCont:LoadAnimation(anims.Death)
 
-    dizzyAnim.Looped = false
-    dizzyAnim:Stop()
-
     deathAnim:Play()
+    task.wait(deathAnim.Length)
 
-    self:tweenMeshTransparency(1)
     MobDeathFXRE:FireAllClients(self.mobModel.Mesh.Position)
 
-    
     if self.damageDoneByPlayers then 
         for i, player in self.damageDoneByPlayers do
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
-
         end
 
         self:dispenseRewards(self.damageDoneByPlayers)
@@ -218,24 +198,27 @@ function MobClass:despawn()
 
     self.spawnLocation:SetAttribute('Active', false)
 
+    self.canEngage = false
+
     self:spawn()
 
 end
 
 
 function MobClass:dealDamage(Player, playerWeapons)
-    if playerWeapons and Player then
+    if playerWeapons and Player and self.currentHealth > 0 and #playerWeapons >= 1 and self.mobModel then
+
+        if self.canBeEngaged then
+            MobAttackFXRE:FireAllClients(self.mobModel.Mesh.Position)
+        end
+
         for _, weapon in playerWeapons do
-            if self.currentHealth <= 0 then
-                return
-            else
-                local defaultDMG = WeaponConfig[weapon.weaponType][weapon.weaponName].Damage
-                local sentDamage = math.random(defaultDMG /0.9, defaultDMG)
+            local defaultDMG = WeaponConfig[weapon.weaponType][weapon.weaponName].Damage
+            local sentDamage = math.random(defaultDMG /0.9, defaultDMG)
 
-                self.currentHealth -= sentDamage
+            self.currentHealth -= sentDamage
 
-                self.damageDoneByPlayers[Player.UserId] += sentDamage
-            end
+            self.damageDoneByPlayers[Player.UserId] += sentDamage
         end
     end
 end
@@ -254,15 +237,6 @@ function MobClass:updateHPBar(healthBar, currentHealth, totalHealth)
     end
 end
 
-function MobClass:tweenMeshTransparency(deathDur)
-    local tweenInfo = TweenInfo.new(deathDur)
-    local tween = TweenService:Create(self.mobModel.Mesh, tweenInfo, {
-        Transparency = 1
-    })
-
-    tween:Play()
-end
-
 -- Remote Event for Mob Defeat Reward Distribution
 function MobClass:dispenseRewards(damageDoneByPlayers)
     if damageDoneByPlayers and self.mobValue and self.mobHealth then
@@ -273,13 +247,9 @@ function MobClass:dispenseRewards(damageDoneByPlayers)
             end
         
             local individualReward = (damage / self.mobHealth) * self.mobValue
-
             
             CoinDropRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.PrimaryPart.CFrame, individualReward )
-            --local coinDropInstance = CoinDrop.spawn(self.mobModel.PrimaryPart.CFrame, individualReward, Players:GetPlayerByUserId(i))
-
-            task.wait()
-
+            --task.wait()
             profile:giveCoins(individualReward)
 
         end

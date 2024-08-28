@@ -15,6 +15,7 @@ local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 local CoinDropRE = RemoteEvents:WaitForChild('CoinDrop')
 local MobDeathFXRE = RemoteEvents.MobDeathFX
+local AttackMobRE = RemoteEvents.AttackMobFX
 
 local Player = Players.LocalPlayer
 
@@ -46,5 +47,26 @@ local function onMobDeath(mobPosition)
     mobExplosionInstance:Destroy()
 end
 
+local function onMobAttack(mobPosition)
+    local mobAttackImpactInstance = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.MobAttackImpact:Clone()
+    mobAttackImpactInstance.Parent = workspace:WaitForChild('FX')
+
+    local newTrove = Trove.new()
+    newTrove.Add(newTrove, mobAttackImpactInstance)
+
+    mobAttackImpactInstance.Position = mobPosition
+
+    local fxAttachment = mobAttackImpactInstance:WaitForChild('Main')
+
+    for _, particle in fxAttachment:GetChildren() do
+        particle:Emit(particle:GetAttribute('EmitCount'))
+    end
+
+    task.wait(1)
+
+    mobAttackImpactInstance:Destroy()
+end
+
+AttackMobRE.OnClientEvent:Connect(onMobAttack)
 CoinDropRE.OnClientEvent:Connect(onCoinDropInvoke)
 MobDeathFXRE.OnClientEvent:Connect(onMobDeath)
