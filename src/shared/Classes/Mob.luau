@@ -114,7 +114,7 @@ function MobClass:attacked(Player, playerWeapons)
     if self and self.mobModel and self.mobModel.Mesh then
         
     -- NORMAL ATTACK
-        if self.currentHealth > 0 then
+        if self.currentHealth >= 0 then
 
             local animCont = self.mobModel.AnimationController
             local anims = self.mobModel:WaitForChild('Animations')
@@ -135,6 +135,7 @@ function MobClass:attacked(Player, playerWeapons)
         
             dizzyAnim:Play()
             task.wait(dizzyAnim.Length)
+
         end
 
         -- DEATH TRIGGER
@@ -209,15 +210,16 @@ function MobClass:dealDamage(Player, playerWeapons)
 
         for _, weapon in playerWeapons do
             local defaultDMG = WeaponConfig[weapon.weaponType][weapon.weaponName].Damage
-            local sentDamage = math.floor(math.random(defaultDMG /2, defaultDMG))
+            local sentDamage = (math.random(defaultDMG *0.8, defaultDMG))
 
             if sentDamage > defaultDMG then return end
+
 
             if (self.currentHealth - sentDamage) <= 0 then
                 sentDamage = (self.currentHealth)
             end
 
-            self.currentHealth -= sentDamage
+            self.currentHealth -= math.round(sentDamage)
             self.damageDoneByPlayers[Player.UserId] += sentDamage
         end
     end
@@ -249,10 +251,8 @@ function MobClass:dispenseRewards(damageDoneByPlayers)
             local individualReward = (damage / self.mobHealth) * self.mobValue
             
             CoinDropRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.PrimaryPart.CFrame, individualReward )
-            --task.wait()
-            profile:giveCoins(individualReward)
 
-            print(individualReward)
+            profile:giveCoins(math.round(individualReward))
         end
     end
 end

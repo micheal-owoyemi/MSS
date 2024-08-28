@@ -62,7 +62,7 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
     end
 end
 
-local OFFSET = 10
+local OFFSET = 6
 
 
 return function(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed) 
