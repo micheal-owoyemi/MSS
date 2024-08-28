@@ -35,7 +35,7 @@ local function onMobDeath(mobPosition)
     local newTrove = Trove.new()
     newTrove.Add(newTrove, mobExplosionInstance)
 
-    mobExplosionInstance.Position = mobPosition
+    mobExplosionInstance.Position = Vector3.new(mobPosition.X, 2, mobPosition.Z)
     local fxAttachment = mobExplosionInstance:WaitForChild('Main')
 
     for _, particle in fxAttachment:GetChildren() do
