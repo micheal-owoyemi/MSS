@@ -84,6 +84,7 @@ function MobClass:engaged(Player, playerWeapons)
         local engagedAnim = animCont:LoadAnimation(anims.Engaged)
 
         if self.currentHealth == self.mobHealth or self.damageDoneByPlayers[Player.UserId] == nil and not self.canBeEngaged then
+
             self.damageDoneByPlayers[Player.UserId] = 0
 
             self.mobModel.Mesh.Attachment.Health.Enabled = true
@@ -113,7 +114,7 @@ function MobClass:attacked(Player, playerWeapons)
     if self and self.mobModel and self.mobModel.Mesh then
         
     -- NORMAL ATTACK
-        if self.currentHealth > 0 and self.currentHealth > self.mobHealth / 10 then
+        if self.currentHealth > 0 then
 
             local animCont = self.mobModel.AnimationController
             local anims = self.mobModel:WaitForChild('Animations')
@@ -124,20 +125,16 @@ function MobClass:attacked(Player, playerWeapons)
 
             attackedAnim:Play()
             task.wait(attackedAnim.Length)
-
         end
 
         -- DIZZY TRIGGER
-        if self.currentHealth <= self.mobHealth / 10  and self.currentHealth > 0 then
+        if self.currentHealth <= self.mobHealth / 8  and self.currentHealth > 0 then
             local animCont = self.mobModel.AnimationController
             local anims = self.mobModel:WaitForChild('Animations')
             local dizzyAnim = animCont:LoadAnimation(anims.Dizzy)
         
-            dizzyAnim.Looped = true
             dizzyAnim:Play()
             task.wait(dizzyAnim.Length)
-
-            self:dealDamage(Player, playerWeapons)
         end
 
         -- DEATH TRIGGER
@@ -189,7 +186,6 @@ function MobClass:despawn()
     self.mobModel:Destroy()
     self.mobModel = nil
     self.mobModel = newModel
-
     self.currentHealth = self.mobHealth
 
     table.clear(self.damageDoneByPlayers)
@@ -197,7 +193,6 @@ function MobClass:despawn()
     task.wait(self.cooldown)
 
     self.spawnLocation:SetAttribute('Active', false)
-
     self.canEngage = false
 
     self:spawn()
@@ -214,10 +209,15 @@ function MobClass:dealDamage(Player, playerWeapons)
 
         for _, weapon in playerWeapons do
             local defaultDMG = WeaponConfig[weapon.weaponType][weapon.weaponName].Damage
-            local sentDamage = math.random(defaultDMG /0.9, defaultDMG)
+            local sentDamage = math.floor(math.random(defaultDMG /2, defaultDMG))
+
+            if sentDamage > defaultDMG then return end
+
+            if (self.currentHealth - sentDamage) <= 0 then
+                sentDamage = (self.currentHealth)
+            end
 
             self.currentHealth -= sentDamage
-
             self.damageDoneByPlayers[Player.UserId] += sentDamage
         end
     end
@@ -252,6 +252,7 @@ function MobClass:dispenseRewards(damageDoneByPlayers)
             --task.wait()
             profile:giveCoins(individualReward)
 
+            print(individualReward)
         end
     end
 end

@@ -15,6 +15,8 @@ local Trove = require(ReplicatedStorage.Shared.Trove)
 
 -- VARIABLES
 local mobCursor = MobConfig.Settings.MobCursor
+local disengageMobCursor = MobConfig.Settings.DisengageCursor
+
 local mobMinDistance = MobConfig.Settings.MinimumDistance
 
 -- FUNCTIONS
@@ -78,7 +80,7 @@ end
 function WeaponClass:engageMob(target: MeshPart)
     self.engaged = true
     self.target = target
-   -- self:setupTargetDetection()
+    --self:setupTargetDetection()
     RunService:UnbindFromRenderStep('Weapon Render')
 
     local function mobWeaponRender(dt)
@@ -147,48 +149,73 @@ function WeaponClass:updateCursor(player: Player)
     if player and player:GetMouse() then
         local playerMouse = player:GetMouse()
 
-        local updateCursorConnection = RunService.RenderStepped:Connect(function(dt)
+
+        playerMouse.Move:Connect(function()
             local target = playerMouse.Target
+            local defaultMouse = ''
 
+            if target and target:IsA('MeshPart') and target:GetAttribute('Mob') and target.Highlight then
 
-            if target and target:IsA('MeshPart') and target:GetAttribute('Mob') then
+                if not target.Highlight then
+                    return
+                end
 
-                if target:GetAttribute('Mob') then
-                    local distance = player:DistanceFromCharacter(target.Position)
-                    if distance <= mobMinDistance then
+                if not self.target then
 
-                        if lastMobInstance ~= nil then
-                            lastMobInstance.Highlight.Enabled = false
-                            lastMobInstance = nil
+                    if target:GetAttribute('Mob') then
+                        local distance = player:DistanceFromCharacter(target.Position)
+                        if distance <= mobMinDistance then
+
+                            if lastMobInstance and #lastMobInstance:GetChildren() > 0 then
+                                lastMobInstance.Highlight.Enabled = false
+                                lastMobInstance = nil
+                            end
+
+                            UserInputService.MouseIcon = mobCursor
+                            target.Highlight.Enabled = true
+                            lastMobInstance = target
                         end
 
+                    else
+                        UserInputService.MouseIcon = defaultMouse
+
+                        if lastMobInstance then
+                            if lastMobInstance.Highlight then
+                                lastMobInstance.Highlight.Enabled = false
+                                lastMobInstance = nil
+                            end
+                        end
+                    end
+                else
+                    
+                    if self.target == target then
                         UserInputService.MouseIcon = mobCursor
                         target.Highlight.Enabled = true
                         lastMobInstance = target
-                    end
-                else
-                    UserInputService.MouseIcon = ''
-                    if lastMobInstance then
-                        if lastMobInstance.Highlight then
-                            lastMobInstance.Highlight.Enabled = false
-                            lastMobInstance = nil
+                    else
+                        UserInputService.MouseIcon = defaultMouse
+
+                        if lastMobInstance then
+                            if lastMobInstance.Highlight then
+                                lastMobInstance.Highlight.Enabled = false
+                                lastMobInstance = nil
+                            end
                         end
+                        
                     end
-                    
                 end
             else
-                UserInputService.MouseIcon = ''
-                if lastMobInstance then
+                UserInputService.MouseIcon = defaultMouse
+
+                if lastMobInstance and #lastMobInstance:GetChildren() > 0 then
                     if lastMobInstance.Highlight then
                         lastMobInstance.Highlight.Enabled = false
                         lastMobInstance = nil
-                    else
-                        return
                     end
-                else
-                    return
                 end
             end
+
+            
         end)
     end
 end
