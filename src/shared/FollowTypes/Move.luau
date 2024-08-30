@@ -22,6 +22,10 @@ local function BlockCast(weapon)
     return rayResult
 end
 
+local function absDistance(pointA, pointB)
+    return math.abs(math.abs(pointA) - math.abs(pointB))
+end
+
 local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed, offset)
     local weapons = {}
     
@@ -56,7 +60,7 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
             Y = (rayResult.Position.Y + Weapon.PrimaryPart.Size.Y/2) + offset
         end
 
-        local targetCFrame = CFrame.new(humanoidRootPart.Position.X , offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame
+        local targetCFrame = CFrame.new(humanoidRootPart.Position.X , offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame_
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
     end
