@@ -16,30 +16,25 @@ local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 local Weapons = {}
 
-local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
-
-
 
 -- FUNCTIONS
 
 ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     local isLocal = Replica.Tags.Player == Player
     local replicaData = Replica.Data
-
-    print(replicaData)
     
     if isLocal then 
         -- Grabs init replicaData, spawns weapons for it
-        for UUID, weapon in pairs(replicaData.Weapons) do
+        --[[for UUID, weapon in pairs(replicaData.Weapons) do
             local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
             table.insert(Weapons, weaponInstance)
-        end
+        end]]
 
         local coinCountUI = Player:WaitForChild('PlayerGui'):WaitForChild('CurrencyCounter').Frame.TextLabel
         coinCountUI.Text = replicaData.Coins
 
 
-        Replica:ListenToChange({'Weapons'}, function(new_value, old_value)
+        --[[Replica:ListenToChange({'Weapons'}, function(new_value, old_value)
             print('[Client Init] Data Has Been Changed, New Replica Data: ', new_value)
             -- When changed, does it again
 
@@ -55,7 +50,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
                 table.insert(Weapons, weaponInstance)
             end
             -- Create comparison function to see what changed, then reflect as such
-        end)
+        end)]]
 
         Replica:ListenToChange({'Coins'}, function(new_value, old_value)
 
@@ -70,14 +65,3 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
         end)
     end
 end)
-
-
-
--- RE to disengage player weapons on target death
-local function onMobDeath(mobInstance)
-    for _, weapon in Weapons do
-        weapon:disengageMob(mobInstance)
-    end
-end
-
-MobDeathRE.OnClientEvent:Connect(onMobDeath)

@@ -10,6 +10,8 @@ local rayDirection = Vector3.new(0, -500, 0)
 
 local weaponsFolder = workspace:WaitForChild('Weapons')
 
+local lastTick = tick()
+
 -- FUNCTIONS
 local function BlockCast(weapon)
     local rayResult = workspace:Blockcast(
@@ -28,10 +30,16 @@ end
 
 local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, humanoid, weapon, speed, offset)
     local weapons = {}
-    
-    for _, weapon in weaponFolder:GetChildren() do
-        table.insert(weapons, weapon)
+    print(weaponFolder)
+    for _, weapon in weaponFolder do
+        print(weapon)
+        if weapon:IsA('Model') then
+            table.insert(weapons, weapon)
+        end
     end
+
+    print(weapons)
+
 
     rayParams.FilterDescendantsInstances = {weaponsFolder, character}
 
@@ -60,9 +68,13 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
             Y = (rayResult.Position.Y + Weapon.PrimaryPart.Size.Y/2) + offset
         end
 
-        local targetCFrame = CFrame.new(humanoidRootPart.Position.X , offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame_
+        local targetCFrame = CFrame.new(humanoidRootPart.Position.X , offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) 
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
+
+        local distance = absDistance(targetCFrame.X,  Weapon.PrimaryPart.CFrame.X)
+
+        print(distance)
     end
 end
 

@@ -100,6 +100,9 @@ function MobClass:engaged(Player, playerWeapons)
             idleAnim:Play()
 
             self.canBeEngaged = true
+
+        else
+            print(self.currentHealth, self.mobHealth, self.canBeEngaged, self.damageDoneByPlayers[Player.UserId])
         end 
 
         if self.damageDoneByPlayers[Player.UserId] ~= nil and self.canBeEngaged then
@@ -200,7 +203,7 @@ function MobClass:despawn()
     task.wait(self.cooldown)
 
     self.spawnLocation:SetAttribute('Active', false)
-    self.canEngage = false
+    self.canBeEngaged = false
 
     self:spawn()
 
