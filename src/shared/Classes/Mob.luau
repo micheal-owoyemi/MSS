@@ -100,9 +100,6 @@ function MobClass:engaged(Player, playerWeapons)
             idleAnim:Play()
 
             self.canBeEngaged = true
-
-        else
-            print(self.currentHealth, self.mobHealth, self.canBeEngaged, self.damageDoneByPlayers[Player.UserId])
         end 
 
         if self.damageDoneByPlayers[Player.UserId] ~= nil and self.canBeEngaged then

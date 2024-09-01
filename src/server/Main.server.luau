@@ -9,8 +9,6 @@ local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 
 local MobManager = require(ReplicatedStorage.Shared.Managers.Mob)
 
-
-
 -- VARIABLES
 local mobManagerInstance = MobManager.new()
 
@@ -21,7 +19,7 @@ local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
 -- FUNCTIONS
 
 -- On Player Join Give Weapons
---[[game.Players.PlayerAdded:Connect(function(Player)
+game.Players.PlayerAdded:Connect(function(Player)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
         return
@@ -33,5 +31,28 @@ local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
     local weaponInstance = WeaponClass.new('Sword', 'Wooden Sword', false, Player)
     profile:addWeapon(weaponInstance)
 
-end)]]
+end)
 
+-- Spawns Mobs For Each Zone
+mobManagerInstance:setUpZoneSpawning()
+
+-- Remote Event for Mob Attacking
+local function attackMobREConnection(Player, mobInstance)
+    local profile = DataHandler:getProfileAsync(Player)
+    if not profile then
+        return
+    end
+
+    local attackingWeapons = {}
+
+    for _, weapon in profile.Replica.Data.Weapons do
+        if weapon.equipped then
+            table.insert(attackingWeapons, weapon)
+        end
+    end
+
+    mobManagerInstance:attackMob(Player, mobInstance, attackingWeapons)
+end
+
+
+attackMobRE.OnServerEvent:Connect(attackMobREConnection)

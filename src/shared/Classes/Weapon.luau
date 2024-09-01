@@ -20,10 +20,8 @@ local disengageMobCursor = MobConfig.Settings.DisengageCursor
 local mobMinDistance = MobConfig.Settings.MinimumDistance
 
 -- FUNCTIONS
-function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, equipped: boolean, player: Player)
+function WeaponClass.new(weaponType: string, weaponName: string, equipped: boolean, player: Player)
     local self = setmetatable({
-
-        uuid = uuid,
         weaponDMG = WeaponConfig[weaponType][weaponName].Damage,
         weaponType = weaponType,
         weaponName = weaponName,
@@ -43,20 +41,19 @@ function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, e
         mobIdle = require(ReplicatedStorage.Shared.FollowTypes.Mob),
         idle = require(ReplicatedStorage.Shared.FollowTypes.Idle),
         move = require(ReplicatedStorage.Shared.FollowTypes.Move),
+        
 
     }, WeaponClass)
     
     if equipped == true then  
-        self.weaponModel.Name = self.uuid
         self.weaponModel.Parent = self.folder
-        --self:updateCursor(player)
-        --self:setUpMovementDetection()
-        --self:setUpInteractionDetection(self.player)
+        self:updateCursor(player)
+        self:setUpMovementDetection()
+        self:setUpInteractionDetection(self.player)
     end
 
     return self
 end
-
 
 function WeaponClass:setUpMobInteraction(target: MeshPart)
     if target == self.target and self.engaged then
@@ -92,6 +89,7 @@ function WeaponClass:engageMob(target: MeshPart)
 
     RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
 end
+
 
 
 function WeaponClass:setUpMovementDetection()
@@ -222,13 +220,6 @@ function WeaponClass:updateCursor(player: Player)
     end
 end
 
-function WeaponClass:getPositionData()
-    return {
-        Position = self.weaponModel.PrimaryPart.Position,
-        Orientation = self.weaponModel.PrimaryPart.Orientation,
-        CFrame = self.weaponModel.PrimaryPart.CFrame
-    }
-end
 
 function WeaponClass:despawn()
     self.weaponModel:Destroy()
