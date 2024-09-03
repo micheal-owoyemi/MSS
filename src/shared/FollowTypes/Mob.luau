@@ -32,16 +32,6 @@ local function absDistance(pointA, pointB)
     return math.abs(math.abs(pointA) - math.abs(pointB))
 end
 
-local function tweenSwordSwing(weaponModel)
-    local tweenInfo = TweenInfo.new(1)
-    
-    local tween = TweenService:Create(weaponModel.PrimaryPart, tweenInfo, {
-        Orientation = Vector3.new(0, 0, 135)
-    })
-
-    tween:Play()
-end
-
 local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, offset)
     local weapons = {}
     
@@ -93,14 +83,11 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
             
             if currentTick - lastTick >= 2 and mobInstance then
                 lastTick = tick()
-                -- tweenSwordSwing(weapon)
                 Attack(mobInstance)
             end
         end
     end
 end
-
-
 
 
 local OFFSET = 2
