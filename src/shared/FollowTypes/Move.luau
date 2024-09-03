@@ -22,6 +22,8 @@ local function BlockCast(weapon)
     return rayResult
 end
 
+
+
 local function absDistance(pointA, pointB)
     return math.abs(math.abs(pointA) - math.abs(pointB))
 end

@@ -12,6 +12,7 @@ local rayDirection = Vector3.new(0, -500, 0)
 
 local weaponsFolder = workspace:WaitForChild('Weapons')
 
+local distance
 local lastTick = tick()
 
 -- REMOTES
@@ -32,14 +33,20 @@ local function absDistance(pointA, pointB)
     return math.abs(math.abs(pointA) - math.abs(pointB))
 end
 
-local function tweenSwordSwing(weaponModel)
-    local tweenInfo = TweenInfo.new(1)
-    
-    local tween = TweenService:Create(weaponModel.PrimaryPart, tweenInfo, {
-        Orientation = Vector3.new(0, 0, 135)
-    })
+local function playAttackAnimation(weaponInstance, mobInstance, X, Y, Z, zOffset) 
+    if not weaponInstance.Animations then return end
 
-    tween:Play()
+
+    print(X, Y, Z)
+    weaponInstance.PrimaryPart:PivotTo(mobInstance.CFrame * CFrame.Angles(-20, Y, 0))
+    local animations = weaponInstance.Animations
+    local animationController = weaponInstance.AnimationController
+
+    local attackAnimation = animationController:LoadAnimation(animations.Attack)
+
+    attackAnimation:Play()
+    task.wait(attackAnimation.Length)
+    attackAnimation:Stop()
 end
 
 local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, offset)
@@ -82,18 +89,21 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
         if numOfWeapons < 3 then
             zOffset = 3
         end
+
         local targetCFrame = CFrame.new(mobInstance.Position.X, 0, mobInstance.Position.Z) * mobInstance.CFrame.Rotation * CFrame.new(X, Y, Z + zOffset)
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
 
-        local distance = absDistance(targetCFrame.X,  Weapon.PrimaryPart.CFrame.X)
+        
 
-        if distance < 1 then
+        distance = absDistance(targetCFrame.X,  Weapon.PrimaryPart.CFrame.X)
+
+        if distance < 0.5 then
             local currentTick = tick()
             
             if currentTick - lastTick >= 2 and mobInstance then
                 lastTick = tick()
-                -- tweenSwordSwing(weapon)
+                playAttackAnimation(Weapon, mobInstance, X, Y, Z, zOffset)
                 Attack(mobInstance)
             end
         end
