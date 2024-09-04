@@ -105,8 +105,6 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
 end
 
 
-
-
 local OFFSET = 2
 
 return function(weaponFolder, mobInstance, weapon, speed) 
