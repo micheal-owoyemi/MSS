@@ -50,6 +50,7 @@ function WeaponClass.new(weaponType: string, weaponName: string, equipped: boole
         self:updateCursor(player)
         self:setUpMovementDetection()
         self:setUpInteractionDetection(self.player)
+
     end
 
     return self
