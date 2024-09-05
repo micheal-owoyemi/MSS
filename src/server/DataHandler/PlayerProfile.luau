@@ -54,6 +54,21 @@ function PlayerProfile:addWeapon(weaponObject)
     print('[PlayerProfile] Weapon Added:', self.Replica.Data)
 end
 
+function PlayerProfile:getEquippedWeapons()
+    if not self:IsActive() then
+        return
+    end
+
+    local equippedWeapons = {}
+
+    for UUID, weapon in self.Replica.Data.Weapons do
+        if weapon.equipped then
+            equippedWeapons[UUID] = weapon
+        end
+    end
+
+    return equippedWeapons
+end
 
 function PlayerProfile:addZone(zone)
     if not self:IsActive() then

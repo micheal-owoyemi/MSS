@@ -27,14 +27,19 @@ local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 
 -- VARIABLES
 
-local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+local RemoteEvents = ReplicatedStorage.Shared:WaitForChild('RemoteEvents')
+local attackMobRE = RemoteEvents.AttackMob
+local equipWeaponRE = RemoteEvents.EquipWeapon
+local unequipWeaponRE = RemoteEvents.UnequipWeapon
 
-local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
+
+local RemoteFunctions = ReplicatedStorage.Shared:WaitForChild('RemoteFunctions')
+local getEquippedWeaponsRF = RemoteFunctions.GetEquippedWeapons
 
 -- FUNCTIONS
 
 -- On Player Join Give Weapons
-game.Players.PlayerAdded:Connect(function(Player)
+--[[game.Players.PlayerAdded:Connect(function(Player)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
         return
@@ -43,7 +48,39 @@ game.Players.PlayerAdded:Connect(function(Player)
     weaponsFolder.Name = Player.Name
     weaponsFolder.Parent = workspace.Weapons
 
-    local weaponInstance = WeaponClass.new('Sword', 'Wooden Sword', false, Player)
+    local weaponInstance = WeaponClass.new('11223_ee3v2','Sword', 'Wooden Sword', false, Player)
     profile:addWeapon(weaponInstance)
 
-end)
+end)]]
+
+local function equipWeapon(uuid: string, weaponType: string, weaponName: string, equipped: boolean, player: Player)
+    local profile = DataHandler:getProfileAsync(player)
+    if not profile then
+        return
+    end
+
+    local weapon = profile.Replica.Data.Weapons[uuid]
+end
+
+local function getAllEquippedWeapons()
+    local allEquippedWeapons = {}
+
+    for _, player in Players:GetPlayers() do
+        allEquippedWeapons[player.UserId] = {}
+
+        local profile = DataHandler:getProfileAsync(player)
+        if not profile then
+            return
+        end
+
+        local equippedWeapons = profile:getEquippedWeapons()
+        for UUID, weapon in equippedWeapons do
+            allEquippedWeapons[player.UserId][UUID] = weapon
+        end
+    end
+
+    return allEquippedWeapons
+end
+
+
+getEquippedWeaponsRF.OnServerInvoke = getAllEquippedWeapons

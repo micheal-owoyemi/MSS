@@ -28,7 +28,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
 
     print(replicaData)
     
-    if isLocal then 
+   --[[ if isLocal then 
         -- Grabs init replicaData, spawns weapons for it
         for UUID, weapon in pairs(replicaData.Weapons) do
             local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
@@ -68,7 +68,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
                 coinCountUI.Text = new_value
             end
         end)
-    end
+    end]]
 end)
 
 

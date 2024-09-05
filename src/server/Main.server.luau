@@ -19,7 +19,7 @@ local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
 -- FUNCTIONS
 
 -- On Player Join Give Weapons
-game.Players.PlayerAdded:Connect(function(Player)
+--[[game.Players.PlayerAdded:Connect(function(Player)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
         return
@@ -31,7 +31,7 @@ game.Players.PlayerAdded:Connect(function(Player)
     local weaponInstance = WeaponClass.new('Sword', 'Wooden Sword', false, Player)
     profile:addWeapon(weaponInstance)
 
-end)
+end)]]
 
 -- Spawns Mobs For Each Zone
 mobManagerInstance:setUpZoneSpawning()

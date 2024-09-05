@@ -20,8 +20,9 @@ local disengageMobCursor = MobConfig.Settings.DisengageCursor
 local mobMinDistance = MobConfig.Settings.MinimumDistance
 
 -- FUNCTIONS
-function WeaponClass.new(weaponType: string, weaponName: string, equipped: boolean, player: Player)
+function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, equipped: boolean, player: Player)
     local self = setmetatable({
+        uuid = uuid,
         weaponDMG = WeaponConfig[weaponType][weaponName].Damage,
         weaponType = weaponType,
         weaponName = weaponName,
