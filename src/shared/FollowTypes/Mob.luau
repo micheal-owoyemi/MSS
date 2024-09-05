@@ -32,18 +32,19 @@ local function absDistance(pointA, pointB)
     return math.abs(math.abs(pointA) - math.abs(pointB))
 end
 
-local function swordAttackAnim(weaponModel, mobInstance)
+local function playAttackAnimation(weaponInstance, mobInstance, Y) 
+    if not weaponInstance.Animations then return end
 
-    weaponModel.PrimaryPart:PivotTo(mobInstance.CFrame)
 
-    local animCont = weaponModel.AnimationController
-    local animFolder = weaponModel:WaitForChild('Animations')
+    weaponInstance.PrimaryPart:PivotTo(mobInstance.CFrame * CFrame.Angles(-20, Y, 0))
+    local animations = weaponInstance.Animations
+    local animationController = weaponInstance.AnimationController
 
-    local attackAnim = animCont:LoadAnimation(animFolder.Attack)
+    local attackAnimation = animationController:LoadAnimation(animations.Attack)
 
-    attackAnim:Play()
-    task.wait(attackAnim.Length)
-    attackAnim:Stop()
+    attackAnimation:Play()
+    task.wait(attackAnimation.Length)
+    attackAnimation:Stop()
 end
 
 local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, offset)
@@ -97,7 +98,7 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
             
             if currentTick - lastTick >= 2 and mobInstance then
                 lastTick = tick()
-                swordAttackAnim(Weapon, mobInstance)
+                playAttackAnimation(Weapon, mobInstance, Y)
                 Attack(mobInstance)
             end
         end
