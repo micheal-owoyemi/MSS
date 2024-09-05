@@ -24,36 +24,19 @@ local Players = game:GetService('Players')
 local DataHandler = require(ServerScriptService.Server.DataHandler)
 local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 
-
 -- VARIABLES
-
 local RemoteEvents = ReplicatedStorage.Shared:WaitForChild('RemoteEvents')
-local attackMobRE = RemoteEvents.AttackMob
 local equipWeaponRE = RemoteEvents.EquipWeapon
-local replicatedEquipWeaponRE = RemoteEvents.ReplicateEquipWeapon
+local replicateEquipWeaponRE = RemoteEvents.ReplicateEquipWeapon
 local unequipWeaponRE = RemoteEvents.UnequipWeapon
-local replicatedUnequipWeaponRE = RemoteEvents.ReplicateUnequipWeapon
-
+local replicateUnequipWeaponRE = RemoteEvents.ReplicateUnequipWeapon
 
 local RemoteFunctions = ReplicatedStorage.Shared:WaitForChild('RemoteFunctions')
 local getEquippedWeaponsRF = RemoteFunctions.GetEquippedWeapons
 
 -- FUNCTIONS
 
--- On Player Join Give Weapons
---[[game.Players.PlayerAdded:Connect(function(Player)
-    local profile = DataHandler:getProfileAsync(Player)
-    if not profile then
-        return
-    end
-    local weaponsFolder = Instance.new('Folder')
-    weaponsFolder.Name = Player.Name
-    weaponsFolder.Parent = workspace.Weapons
 
-    local weaponInstance = WeaponClass.new('11223_ee3v2','Sword', 'Wooden Sword', false, Player)
-    profile:addWeapon(weaponInstance)
-
-end)]]
 
 local function equipWeapon(player: Player, uuid: string)
     local profile = DataHandler:getProfileAsync(player)
@@ -70,7 +53,7 @@ local function equipWeapon(player: Player, uuid: string)
 
     for _, replicationTarget in Players:GetPlayers() do
         if player == replicationTarget then continue end
-        replicatedEquipWeaponRE:FireClient(replicationTarget, player, weapon)
+        replicateEquipWeaponRE:FireClient(replicationTarget, player, weapon)
     end
 end
 
@@ -84,12 +67,12 @@ local function unequipWeapon(player: Player, uuid: string)
     if not weapon then return end
     if not weapon.equipped then return end -- or use equip function
 
-    profile:equipWeapon(uuid)
-    equipWeaponRE:FireClient(player, uuid)
+    profile:unequipWeapon(uuid)
+    unequipWeaponRE:FireClient(player, uuid)
 
     for _, replicationTarget in Players:GetPlayers() do
         if player == replicationTarget then continue end
-        replicatedEquipWeaponRE:FireClient(replicationTarget, player, weapon)
+        replicateUnequipWeaponRE:FireClient(replicationTarget, player, weapon)
     end
 end
 
@@ -109,9 +92,27 @@ local function getAllEquippedWeapons()
             allEquippedWeapons[player.UserId][UUID] = weapon
         end
     end
-
     return allEquippedWeapons
 end
+
+-- On Player Join
+game.Players.PlayerAdded:Connect(function(Player)
+    local profile = DataHandler:getProfileAsync(Player)
+    if not profile then
+        return
+    end
+
+    local weaponsFolder = Instance.new('Folder')
+    weaponsFolder.Name = tostring(Player.UserId)
+    weaponsFolder.Parent = workspace.Weapons
+
+    local weaponInstance = WeaponClass.new('11223_ee3v2','Sword', 'Wooden Sword', false, Player)
+    profile:addWeapon(weaponInstance)
+
+    for UUID, weapons in profile.Replica.Data.Weapons do
+        equipWeapon(Player, UUID)
+    end
+end)
 
 
 getEquippedWeaponsRF.OnServerInvoke = getAllEquippedWeapons

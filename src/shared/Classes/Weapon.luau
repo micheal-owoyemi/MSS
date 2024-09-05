@@ -27,7 +27,7 @@ function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, e
         weaponType = weaponType,
         weaponName = weaponName,
         weaponModel = ReplicatedStorage.Shared.Assets.Weapons[weaponType][weaponName].Model:Clone(),
-        folder = workspace:WaitForChild('Weapons'):WaitForChild(player.Name),
+        folder = workspace:WaitForChild('Weapons'):WaitForChild(tostring(player.UserId)),
 
         equipped = equipped,
         engaged = false,

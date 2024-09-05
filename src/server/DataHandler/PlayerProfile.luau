@@ -18,6 +18,7 @@ function PlayerProfile.new(profile, player, replica)
     return self
 end
 
+-- COIN FUNCTIONS
 function PlayerProfile:giveCoins(amount)
     if not self:IsActive() then
         return
@@ -34,6 +35,7 @@ function PlayerProfile:getCoins()
     return self.Profile.Data.Coins
 end
 
+ -- WEAPON FUNCTIONS
 function PlayerProfile:addWeapon(weaponObject)
     if not self:IsActive() then
         return
@@ -94,6 +96,7 @@ function PlayerProfile:getEquippedWeapons()
     return equippedWeapons
 end
 
+-- ZONE FUNCTIONS
 function PlayerProfile:addZone(zone)
     if not self:IsActive() then
         return
