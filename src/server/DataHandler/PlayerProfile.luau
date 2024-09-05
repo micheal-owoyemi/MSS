@@ -54,6 +54,30 @@ function PlayerProfile:addWeapon(weaponObject)
     print('[PlayerProfile] Weapon Added:', self.Replica.Data)
 end
 
+function PlayerProfile:equipWeapon(weaponUUID)
+    if not self:IsActive() then
+        return
+    end
+
+    local newWeaponData = self.Replica.Data.Weapons
+
+    newWeaponData[weaponUUID].equipped = true
+    
+    self.Replica:SetValue({'Weapons'}, newWeaponData)
+end
+
+function PlayerProfile:unequipWeapon(weaponUUID)
+    if not self:IsActive() then
+        return
+    end
+
+    local newWeaponData = self.Replica.Data.Weapons
+
+    newWeaponData[weaponUUID].equipped = false
+    
+    self.Replica:SetValue({'Weapons'}, newWeaponData)
+end
+
 function PlayerProfile:getEquippedWeapons()
     if not self:IsActive() then
         return

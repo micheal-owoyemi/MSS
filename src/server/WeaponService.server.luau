@@ -30,7 +30,9 @@ local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 local RemoteEvents = ReplicatedStorage.Shared:WaitForChild('RemoteEvents')
 local attackMobRE = RemoteEvents.AttackMob
 local equipWeaponRE = RemoteEvents.EquipWeapon
+local replicatedEquipWeaponRE = RemoteEvents.ReplicateEquipWeapon
 local unequipWeaponRE = RemoteEvents.UnequipWeapon
+local replicatedUnequipWeaponRE = RemoteEvents.ReplicateUnequipWeapon
 
 
 local RemoteFunctions = ReplicatedStorage.Shared:WaitForChild('RemoteFunctions')
@@ -53,13 +55,42 @@ local getEquippedWeaponsRF = RemoteFunctions.GetEquippedWeapons
 
 end)]]
 
-local function equipWeapon(uuid: string, weaponType: string, weaponName: string, equipped: boolean, player: Player)
+local function equipWeapon(player: Player, uuid: string)
     local profile = DataHandler:getProfileAsync(player)
     if not profile then
         return
     end
 
     local weapon = profile.Replica.Data.Weapons[uuid]
+    if not weapon then return end
+    if weapon.equipped then return end -- or use unequip function
+
+    profile:equipWeapon(uuid)
+    equipWeaponRE:FireClient(player, uuid)
+
+    for _, replicationTarget in Players:GetPlayers() do
+        if player == replicationTarget then continue end
+        replicatedEquipWeaponRE:FireClient(replicationTarget, player, weapon)
+    end
+end
+
+local function unequipWeapon(player: Player, uuid: string)
+    local profile = DataHandler:getProfileAsync(player)
+    if not profile then
+        return
+    end
+
+    local weapon = profile.Replica.Data.Weapons[uuid]
+    if not weapon then return end
+    if not weapon.equipped then return end -- or use equip function
+
+    profile:equipWeapon(uuid)
+    equipWeaponRE:FireClient(player, uuid)
+
+    for _, replicationTarget in Players:GetPlayers() do
+        if player == replicationTarget then continue end
+        replicatedEquipWeaponRE:FireClient(replicationTarget, player, weapon)
+    end
 end
 
 local function getAllEquippedWeapons()
