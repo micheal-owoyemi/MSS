@@ -38,7 +38,7 @@ function WeaponClass.new(weaponType: string, weaponName: string, equipped: boole
         trove = Trove.new(),
         pid = PID.new(0, 1, 0.0375, 0, 0),
 
-        mobIdle = require(ReplicatedStorage.Shared.FollowTypes.Mob),
+        mobAttack = require(ReplicatedStorage.Shared.FollowTypes.Mob),
         idle = require(ReplicatedStorage.Shared.FollowTypes.Idle),
         move = require(ReplicatedStorage.Shared.FollowTypes.Move),
         
@@ -85,7 +85,7 @@ function WeaponClass:engageMob(target: MeshPart)
     RunService:UnbindFromRenderStep('Weapon Render')
 
     local function mobWeaponRender(dt)
-        self.mobIdle(self.folder, target, self.weaponModel, 0.03)
+        self.mobAttack(self.folder, target, self.weaponModel, 0.03)
     end
 
     RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
