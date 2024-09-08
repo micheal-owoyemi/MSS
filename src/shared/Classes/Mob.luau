@@ -85,8 +85,6 @@ function MobClass:engaged(Player, playerWeapons)
 
         if self.currentHealth == self.mobHealth and not self.canBeEngaged and self.damageDoneByPlayers[Player.UserId] == nil then
 
-            print( self.damageDoneByPlayers[Player.UserId])
-
             if not self.damageDoneByPlayers[Player.UserId] then self.damageDoneByPlayers[Player.UserId] = 0 end
 
             self.mobModel.Mesh.Attachment.Health.Enabled = true
@@ -165,12 +163,8 @@ function MobClass:mobDeath()
 
     MobDeathFXRE:FireAllClients(self.mobModel.Mesh.Position)
 
-    print(self.damageDoneByPlayers)
-
     if self.damageDoneByPlayers then 
         for i, damage in self.damageDoneByPlayers do
-
-            print(i)
             MobDeathRE:FireClient(Players:GetPlayerByUserId(i), self.mobModel.Mesh)
         end
 

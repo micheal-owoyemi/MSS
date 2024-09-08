@@ -37,7 +37,6 @@ local function playAttackAnimation(weaponInstance, mobInstance, X, Y, Z, zOffset
     if not weaponInstance.Animations then return end
 
 
-    print(X, Y, Z)
     weaponInstance.PrimaryPart:PivotTo(mobInstance.CFrame * CFrame.Angles(-20, Y, 0))
     local animations = weaponInstance.Animations
     local animationController = weaponInstance.AnimationController
