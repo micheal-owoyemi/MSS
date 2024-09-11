@@ -31,4 +31,6 @@ OpenShopRE.OnServerEvent:Connect(function(Player, weaponType, weaponName)
 
     local equippedWeapons = profile:getEquippedWeapons()
 
+    
+
 end)
