@@ -25,8 +25,6 @@ local function LoadWeapons(inventoryUI, Weapons)
             end
         end
 
-        SortedWeapons = {}
-
         for weapon, data in Weapons do
             SortedWeapons[#SortedWeapons + 1] = {Name = data.Name, Damage = data.Damage}
         end
@@ -38,7 +36,6 @@ local function LoadWeapons(inventoryUI, Weapons)
         for _, data in SortedWeapons do
             local WeaponTemplate = ReplicatedStorage:WaitForChild('GUI')['WeaponTemplate']:Clone()
 
-            --
         end
     end)
 end
