@@ -5,11 +5,30 @@ local Players = game:GetService('Players')
 
 -- MODULES
 local DataHandler = require(ServerScriptService.Server.DataHandler)
-local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 
-local MobManager = require(ReplicatedStorage.Shared.Managers.Mob)
+local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
+local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
+
+local Trove = require(ReplicatedStorage.Shared.Trove)
 
 -- VARIABLES
-local mobManagerInstance = MobManager.new()
+local RemoteEvents = ReplicatedStorage.Shared:WaitForChild('RemoteEvents')
+local OpenShopRE = RemoteEvents.OpenShop
 
-local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
+local WeaponsData = {}
+
+--    local profile = DataHandler:getProfileAsync(Player)
+
+-- FUNCTIONS
+OpenShopRE.OnServerEvent:Connect(function(Player, weaponType, weaponName)
+    local profile = DataHandler:getProfileAsync(Player)
+    if not profile then
+        return
+    end
+
+    local Weapon = WeaponConfig[weaponType][weaponName]
+    if not Weapon then return end
+
+    local equippedWeapons = profile:getEquippedWeapons()
+
+end)
