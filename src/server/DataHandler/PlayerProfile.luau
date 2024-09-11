@@ -18,6 +18,7 @@ function PlayerProfile.new(profile, player, replica)
     return self
 end
 
+-- COIN FUNCTIONS
 function PlayerProfile:giveCoins(amount)
     if not self:IsActive() then
         return
@@ -34,6 +35,7 @@ function PlayerProfile:getCoins()
     return self.Profile.Data.Coins
 end
 
+ -- WEAPON FUNCTIONS
 function PlayerProfile:addWeapon(weaponObject)
     if not self:IsActive() then
         return
@@ -54,7 +56,47 @@ function PlayerProfile:addWeapon(weaponObject)
     print('[PlayerProfile] Weapon Added:', self.Replica.Data)
 end
 
+function PlayerProfile:equipWeapon(weaponUUID)
+    if not self:IsActive() then
+        return
+    end
 
+    local newWeaponData = self.Replica.Data.Weapons
+
+    newWeaponData[weaponUUID].equipped = true
+    
+    self.Replica:SetValue({'Weapons'}, newWeaponData)
+end
+
+function PlayerProfile:unequipWeapon(weaponUUID)
+    if not self:IsActive() then
+        return
+    end
+
+    local newWeaponData = self.Replica.Data.Weapons
+
+    newWeaponData[weaponUUID].equipped = false
+    
+    self.Replica:SetValue({'Weapons'}, newWeaponData)
+end
+
+function PlayerProfile:getEquippedWeapons()
+    if not self:IsActive() then
+        return
+    end
+
+    local equippedWeapons = {}
+
+    for UUID, weapon in self.Replica.Data.Weapons do
+        if weapon.equipped then
+            equippedWeapons[UUID] = weapon
+        end
+    end
+
+    return equippedWeapons
+end
+
+-- ZONE FUNCTIONS
 function PlayerProfile:addZone(zone)
     if not self:IsActive() then
         return
