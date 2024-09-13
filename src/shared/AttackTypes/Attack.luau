@@ -13,7 +13,6 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
 
 -- MODULES
-local WeaponConfig = require(ReplicatedStorage.Shared.Configs.MobConfig)
 
 -- VARIABLES
 local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
