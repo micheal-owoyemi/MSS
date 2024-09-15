@@ -44,11 +44,6 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
             -- When changed, does it again
 
             local additions, deletions = HelperFunctions.compareTables(new_value, old_value)
-            
-           -- for i, weapon in (deletions) do
-            --    weapon:despawn()
-            --    Weapons[i] = nil    
-           -- end
 
             for i, weapon in (additions) do
                 local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)

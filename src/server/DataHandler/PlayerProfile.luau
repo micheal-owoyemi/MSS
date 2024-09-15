@@ -80,6 +80,13 @@ function PlayerProfile:unequipWeapon(weaponUUID)
     self.Replica:SetValue({'Weapons'}, newWeaponData)
 end
 
+function PlayerProfile:getWeapons()
+    if not self:IsActive() then
+        return
+    end
+
+    return self.Replica.Data.Weapons
+end
 function PlayerProfile:getEquippedWeapons()
     if not self:IsActive() then
         return

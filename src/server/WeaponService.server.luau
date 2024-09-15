@@ -15,22 +15,24 @@ local Trove = require(ReplicatedStorage.Shared.Trove)
 local RemoteEvents = ReplicatedStorage.Shared:WaitForChild('RemoteEvents')
 local OpenShopRE = RemoteEvents.OpenShop
 
+local RemoteFunctions = ReplicatedStorage.Shared:WaitForChild('RemoteFunctions')
+local GetWeaponsRF = RemoteFunctions.GetWeapons
+
 local WeaponsData = {}
 
 --    local profile = DataHandler:getProfileAsync(Player)
 
 -- FUNCTIONS
-OpenShopRE.OnServerEvent:Connect(function(Player, weaponType, weaponName)
+local function getWeapons(Player)
     local profile = DataHandler:getProfileAsync(Player)
     if not profile then
         return
     end
 
-    local Weapon = WeaponConfig[weaponType][weaponName]
-    if not Weapon then return end
+    local weaponInventory = profile:getWeapons()
 
-    local equippedWeapons = profile:getEquippedWeapons()
-
+    print(weaponInventory)
     
-
-end)
+    return weaponInventory
+end
+GetWeaponsRF.OnServerInvoke = getWeapons
