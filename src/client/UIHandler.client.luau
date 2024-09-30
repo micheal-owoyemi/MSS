@@ -103,8 +103,6 @@ local function openWeaponInventory()
     if weaponInventoryUI.Visible then return end
 
     local Weapons = GetWeaponsRF:InvokeServer()
-    print(Weapons)
-    print('Inventory Open')
     weaponInventoryUI.Visible = true
 
     loadWeapons(weaponInventoryUI, Weapons)
@@ -115,8 +113,6 @@ local function openWeaponInventory()
 
         local Lateral = weaponInventoryUI.Main.Lateral
         local weaponData = Weapons[WeaponSelected]
-
-        print(weaponData)
 
         Lateral.WeaponName.Text = weaponData.weaponName
 		Lateral.Damage.Text = ('ATK: '.. WeaponConfig[weaponData.weaponType][weaponData.weaponName].Damage) or 'ATK: '
@@ -153,4 +149,3 @@ end
 
 weaponInventoryButton.MouseButton1Click:Connect(openWeaponInventory)
 weaponInventoryExitButton.MouseButton1Click:Connect(closeWeaponInventory)
-
