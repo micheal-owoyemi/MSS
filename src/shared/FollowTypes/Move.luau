@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 
 -- MODULES
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
-
+local WeaponPacket = require(ReplicatedStorage.Shared.Network.WeaponPacket)
 -- VARIABLES
 local rayParams = RaycastParams.new()
 local rayDirection = Vector3.new(0, -500, 0)
@@ -65,6 +65,12 @@ local function UpdateWeaponPositions(weaponFolder, character, humanoidRootPart, 
         local targetCFrame = CFrame.new(humanoidRootPart.Position.X , offset, humanoidRootPart.Position.Z) * (humanoidRootPart.CFrame.Rotation * CFrame.Angles(-90, 0, 0))  * CFrame.new(X, Y, Z) -- Change orientation on targetCFrame_
 
         Weapon.PrimaryPart.CFrame = Weapon.PrimaryPart.CFrame:Lerp(targetCFrame, speed)
+
+        --[[WeaponPacket.updateWeaponState.send({
+            id = character.Parent.UserId,
+            uuid = Weapon.UUID,
+            cframe = Weapon.PrimaryPart.CFrame
+        })]]
     end
 end
 

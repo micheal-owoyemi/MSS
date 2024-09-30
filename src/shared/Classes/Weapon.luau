@@ -8,6 +8,7 @@ local UserInputService = game:GetService('UserInputService')
 
 -- MODULES
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
+local WeaponPacket = require(ReplicatedStorage.Shared.Network.WeaponPacket)
 local MobConfig =  require(ReplicatedStorage.Shared.Configs.MobConfig)
 
 local PID = require(ReplicatedStorage.Shared.PID)
@@ -93,8 +94,6 @@ function WeaponClass:engageMob(target: MeshPart)
     RunService:UnbindFromRenderStep('Weapon Render')
 
 
-    
-
     local function mobWeaponRender(dt)
         self.mobIdle(self.folder, target, self.weaponModel, 0.03)
     end
@@ -113,6 +112,13 @@ function WeaponClass:setUpMovementDetection()
             if humanoid.MoveDirection.Magnitude > 0 then
                 self.move(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
                 
+                WeaponPacket.updateWeaponState.send({
+                id = self.player.UserId,
+                uuid = self.uuid,
+                position = self.weaponModel.PrimaryPart.Position,
+                orientation = self.weaponModel.PrimaryPart.Orientation
+                })
+
             else
                 self.idle(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
             end
