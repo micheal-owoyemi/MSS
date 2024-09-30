@@ -11,13 +11,13 @@ local WeaponStates = {}
 -- FUNCTIONS -- 
 local function updateWeaponStateOnServer(id, uuid, newCframe)
     WeaponStates[id] = WeaponStates[id] or {}
-    
+
     WeaponStates[id][uuid] = {
         cframe = newCframe
     }
     
     WeaponPacket.broadcastUpdate(id, uuid, newCframe)
-end -- Broadcast update to all players
+end -- Broadcast update to all players except sender
 
 
 WeaponPacket.onClientUpdate(function(player, data)

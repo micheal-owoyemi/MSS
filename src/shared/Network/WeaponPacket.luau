@@ -4,6 +4,7 @@ WeaponPacket.__index = WeaponPacket
 -- SERVICES / LIBRARIES -- 
 
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local Players = game:GetService('Players')
 local ByteNet = require(ReplicatedStorage.Shared.ByteNet)
 
 
@@ -24,12 +25,12 @@ local WeaponReplication = ByteNet.defineNamespace("WeaponReplication", function(
 end)
 
 -- FUNCTIONS -- 
-function WeaponPacket.broadcastUpdate(player, id, uuid, cframe)
+function WeaponPacket.broadcastUpdate(id, uuid, cframe)
     WeaponReplication.updateWeaponState.sendToAllExcept({
         id = id,
         uuid = uuid,
         cframe = cframe
-    }, player)
+    }, Players:GetNameFromUserIdAsync(id).Name)
 end -- Broadcast weapon update to all clients except sender
 
 function WeaponPacket.onClientUpdate(callback)

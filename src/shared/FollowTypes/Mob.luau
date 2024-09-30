@@ -66,6 +66,7 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
     local radius = WeaponConfig.Spacing * (numOfWeapons + 1) / (math.pi * 2)
     local angleStep = (math.pi * 2) / (numOfWeapons)
 
+
     for i, Weapon in weapons do
         if Weapon ~= weapon then
             continue

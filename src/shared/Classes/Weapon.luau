@@ -82,7 +82,18 @@ function WeaponClass:engageMob(target: MeshPart)
     self.engaged = true
     self.target = target
     --self:setupTargetDetection()
+
+    local character = self.player.Character
+    local animator = character:WaitForChild('Humanoid'):WaitForChild('Animator')
+    local anims = character.CustomAnimations
+    local commandAnim = animator:LoadAnimation(anims.WeaponCommandWalk)
+
+    commandAnim:Play()
+    task.wait(commandAnim.Length/4)
     RunService:UnbindFromRenderStep('Weapon Render')
+
+
+    
 
     local function mobWeaponRender(dt)
         self.mobIdle(self.folder, target, self.weaponModel, 0.03)
