@@ -18,8 +18,6 @@ local Weapons = {}
 
 local MobDeathRE = RemoteEvents:WaitForChild('MobDeath')
 
-
-
 -- FUNCTIONS
 
 ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
@@ -31,7 +29,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     if isLocal then 
         -- Grabs init replicaData, spawns weapons for it
         for UUID, weapon in pairs(replicaData.Weapons) do
-            local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
+            local weaponInstance = WeaponClass.new(UUID,weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
             table.insert(Weapons, weaponInstance)
         end
 
@@ -46,7 +44,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
             local additions, deletions = HelperFunctions.compareTables(new_value, old_value)
 
             for i, weapon in (additions) do
-                local weaponInstance = WeaponClass.new(weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
+                local weaponInstance = WeaponClass.new(i,weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
                 table.insert(Weapons, weaponInstance)
             end
             -- Create comparison function to see what changed, then reflect as such
