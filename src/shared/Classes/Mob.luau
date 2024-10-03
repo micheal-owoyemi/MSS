@@ -39,7 +39,7 @@ function MobClass.new(mobZone: string, mobName: string, spawnLocation: Instance)
         mobName = mobName,
         mobValue = MobConfig[mobZone][mobName].Value,
         mobModel = ReplicatedStorage.Shared.Assets.Mobs[mobZone][mobName].Model:Clone(),
-        folder =  workspace:WaitForChild('Zones')[mobZone].Mobs,
+        folder =  workspace:WaitForChild('Game').Zones[mobZone].Mobs,
 
         cooldown = MobConfig[mobZone][mobName].Cooldown,
         canBeEngaged = false,

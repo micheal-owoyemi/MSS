@@ -8,7 +8,7 @@ local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 
 -- VARIABLES -- 
 local Player = Players.LocalPlayer
-local ServerWeapons = workspace:WaitForChild('Weapons')
+local ServerWeapons = workspace:WaitForChild('Game').Weapons
 local PlayerWeapons = {}
 
 -- FUNCTIONS --
@@ -21,5 +21,10 @@ local PlayerWeapons = {}
 end)]]
 
 WeaponPacket.updateWeaponState.listen(function(data)
-    print(`server says { data }`)
+    print(`server says`, data)
+
+    local weaponInstance = ServerWeapons[Players:GetNameFromUserIdAsync(data.id).Name][data.uuid]
+    if weaponInstance then
+        weaponInstance.PrimaryPart:Lerp(data.cframe, 0.5)
+    end
 end)

@@ -10,7 +10,7 @@ local Attack = require(ReplicatedStorage.Shared.AttackTypes.Attack)
 local rayParams = RaycastParams.new()
 local rayDirection = Vector3.new(0, -500, 0)
 
-local weaponsFolder = workspace:WaitForChild('Weapons')
+local weaponsFolder = workspace:WaitForChild('Game'):WaitForChild('Weapons')
 
 local distance
 local lastTick = tick()

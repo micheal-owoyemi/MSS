@@ -18,7 +18,7 @@ local function broadcastUpdate(id, uuid, position, orientation) -- Broadcast wea
         uuid = uuid,
         position = position,
         orientation = orientation
-    }, Players:GetNameFromUserIdAsync(id).Name)
+    }, Players:GetPlayerByUserId(id))
 end 
 
 
@@ -31,7 +31,6 @@ local function updateWeaponStateOnServer(id, uuid, position, orientation) -- Upd
         orientation = orientation
     }
 
-    print(WeaponStates, WeaponStates[id][uuid])
     broadcastUpdate(id, uuid, position, orientation)
 end 
 

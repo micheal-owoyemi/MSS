@@ -8,7 +8,7 @@ local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
 local rayParams = RaycastParams.new()
 local rayDirection = Vector3.new(0, -500, 0)
 
-local weaponsFolder = workspace:WaitForChild('Weapons')
+local weaponsFolder = workspace:WaitForChild('Game'):WaitForChild('Weapons')
 
 local idleSineWave = math.max(math.sin(time() * 5) / 10, -1)
 

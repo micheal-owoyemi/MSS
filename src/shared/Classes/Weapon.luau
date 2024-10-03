@@ -28,7 +28,7 @@ function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, e
         weaponType = weaponType,
         weaponName = weaponName,
         weaponModel = ReplicatedStorage.Shared.Assets.Weapons[weaponType][weaponName].Model:Clone(),
-        folder = workspace:WaitForChild('Weapons'):WaitForChild(player.Name),
+        folder = workspace:WaitForChild('Game'):WaitForChild('Weapons')[player.UserId],
 
         equipped = equipped,
         engaged = false,
@@ -118,12 +118,12 @@ function WeaponClass:setUpMovementDetection()
                 position = self.weaponModel.PrimaryPart.Position,
                 orientation = self.weaponModel.PrimaryPart.Orientation
                 })
-
             else
                 self.idle(self.folder, self.character, humanoidRootPart, humanoid, self.weaponModel, 0.03)
             end
+            wait(0.1)
         end
-    
+        
         RunService:BindToRenderStep('Weapon Render', 0, weaponRender)
     end
 end

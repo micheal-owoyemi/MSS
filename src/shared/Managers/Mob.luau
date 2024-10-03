@@ -21,7 +21,7 @@ local Trove = require(ReplicatedStorage.Shared.Trove)
 local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
 
 -- VARIABLES
-local zones = workspace:WaitForChild('Zones')
+local zones = workspace:WaitForChild('Game'):WaitForChild('Zones')
 
 
 -- FUNCTIONS

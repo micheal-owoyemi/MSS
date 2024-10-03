@@ -8,7 +8,7 @@ local WeaponPacket = require(ReplicatedStorage.Shared.Network.WeaponPacket)
 local rayParams = RaycastParams.new()
 local rayDirection = Vector3.new(0, -500, 0)
 
-local weaponsFolder = workspace:WaitForChild('Weapons')
+local weaponsFolder = workspace:WaitForChild('Game'):WaitForChild('Weapons')
 
 -- FUNCTIONS
 local function BlockCast(weapon)

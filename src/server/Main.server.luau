@@ -25,8 +25,8 @@ game.Players.PlayerAdded:Connect(function(Player)
         return
     end
     local weaponsFolder = Instance.new('Folder')
-    weaponsFolder.Name = Player.Name
-    weaponsFolder.Parent = workspace.Weapons
+    weaponsFolder.Name = Player.UserId
+    weaponsFolder.Parent = workspace:WaitForChild('Game'):WaitForChild('Weapons')
 
     local weaponInstance = WeaponClass.new('233r3', 'Sword', 'Wooden Sword', false, Player)
     profile:addWeapon(weaponInstance)
