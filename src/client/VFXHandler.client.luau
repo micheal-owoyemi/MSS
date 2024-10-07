@@ -30,7 +30,7 @@ end
 
 local function onMobDeath(mobPosition)
     local mobExplosionInstance = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.MobExplosion:Clone()
-    mobExplosionInstance.Parent = workspace:WaitForChild('FX')
+    mobExplosionInstance.Parent = workspace:WaitForChild('Game'):WaitForChild('FX')
     
     local newTrove = Trove.new()
     newTrove.Add(newTrove, mobExplosionInstance)
@@ -49,7 +49,7 @@ end
 
 local function onMobAttack(mobPosition)
     local mobAttackImpactInstance = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.MobAttackImpact:Clone()
-    mobAttackImpactInstance.Parent = workspace:WaitForChild('FX')
+    mobAttackImpactInstance.Parent = workspace:WaitForChild('Game'):WaitForChild('FX')
 
     local newTrove = Trove.new()
     newTrove.Add(newTrove, mobAttackImpactInstance)

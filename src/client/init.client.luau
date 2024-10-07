@@ -27,6 +27,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
     print(replicaData)
     
     if isLocal then 
+        task.wait(1)
         -- Grabs init replicaData, spawns weapons for it
         for UUID, weapon in pairs(replicaData.Weapons) do
             local weaponInstance = WeaponClass.new(UUID,weapon.weaponType, weapon.weaponName, weapon.equipped, Player)
