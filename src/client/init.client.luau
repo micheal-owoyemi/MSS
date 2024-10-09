@@ -34,7 +34,7 @@ ReplicaController.ReplicaOfClassCreated('PlayerProfile', function(Replica)
             table.insert(Weapons, weaponInstance)
         end
 
-        local coinCountUI = Player:WaitForChild('PlayerGui'):WaitForChild('CurrencyCounter').Frame.TextLabel
+        local coinCountUI = Player:WaitForChild('PlayerGui'):WaitForChild('Main'):WaitForChild('CurrencyCounter').Frame.TextLabel
         coinCountUI.Text = replicaData.Coins
 
 

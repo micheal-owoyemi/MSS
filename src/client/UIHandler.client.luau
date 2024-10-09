@@ -22,7 +22,7 @@ local trove = Trove.new()
 local cleanup = trove:WrapClean()
 
 -- WEAPON INVENTORY
-local WeaponInventory = PlayerGui:WaitForChild('WeaponInventory')
+local WeaponInventory = PlayerGui:WaitForChild('Main'):WaitForChild('WeaponInventory')
 local weaponInventoryUI = WeaponInventory:WaitForChild('InventoryUI')
 local weaponInventoryButton = WeaponInventory:WaitForChild('InventoryButton')
 local weaponInventoryExitButton = weaponInventoryUI:WaitForChild('Main').Exit.Button
@@ -102,8 +102,11 @@ end
 local function openWeaponInventory()
     if weaponInventoryUI.Visible then return end
 
+    print('Inventory Opened')
+
     local Weapons = GetWeaponsRF:InvokeServer()
     weaponInventoryUI.Visible = true
+    print(weaponInventoryUI.Parent)
 
     loadWeapons(weaponInventoryUI, Weapons)
     fadeLateral(weaponInventoryUI, Weapons, weaponInventoryUI.Main:WaitForChild('Lateral'))

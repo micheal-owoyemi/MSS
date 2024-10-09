@@ -10,11 +10,13 @@ local WeaponClass = require(ReplicatedStorage.Shared.Classes.Weapon)
 local MobManager = require(ReplicatedStorage.Shared.Managers.Mob)
 
 -- VARIABLES
-local mobManagerInstance = MobManager.new()
-
 local RemoteEvents = ReplicatedStorage.Shared.RemoteEvents
-
 local attackMobRE = RemoteEvents:WaitForChild('AttackMob')
+
+local RemoteFunctions = ReplicatedStorage.Shared:WaitForChild('RemoteFunctions')
+local GetWeaponsRF = RemoteFunctions.GetWeapons
+
+local mobManagerInstance = MobManager.new()
 
 -- FUNCTIONS
 
@@ -54,5 +56,19 @@ local function attackMobREConnection(Player, mobInstance)
     mobManagerInstance:attackMob(Player, mobInstance, attackingWeapons)
 end
 
+-- Remote Function for Getting Weapons
+local function getWeapons(Player)
+    local profile = DataHandler:getProfileAsync(Player)
+    if not profile then
+        return
+    end
+
+    local weaponInventory = profile:getWeapons()
+
+    print(weaponInventory)
+    
+    return weaponInventory
+end
 
 attackMobRE.OnServerEvent:Connect(attackMobREConnection)
+GetWeaponsRF.OnServerInvoke = getWeapons
