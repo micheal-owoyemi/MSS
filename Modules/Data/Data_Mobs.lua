@@ -1,37 +1,12 @@
--- Data_Mobs.lua
--- Shared mob definitions and global mob-spawn settings.
+--!strict
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Data_MobDefs = require(ReplicatedStorage.Data.Data_MobDefs)
+local Data_ZoneDefs = require(ReplicatedStorage.Data.Data_ZoneDefs)
 
 local Data_Mobs = {
-	Zones = {
-		["Castle"] = {
-			Mobs = {
-				["Chest Mimic"] = {
-					Name = "Chest Mimic",
-					ParentZone = "Castle",
-					ModelTemplate = "ChestMimic",
-					DefaultHealth = 100,
-					HealthValue = 100,
-					AttackValue = 1,
-					CoinValue = 10,
-					GemValue = 0,
-					Weight = 60,
-					CanBeEngaged = false,
-				},
-				["Chest Mimic 2"] = {
-					Name = "Chest Mimic 2",
-					ParentZone = "Castle",
-					ModelTemplate = "ChestMimic2",
-					DefaultHealth = 100,
-					HealthValue = 100,
-					AttackValue = 1,
-					CoinValue = 10,
-					GemValue = 0,
-					Weight = 40,
-					CanBeEngaged = false,
-				},
-			},
-		},
-	},
+	Zones = {} :: {[string]: {Mobs: {[string]: any}}},
 	Settings = {
 		SpawnIntervals = 10,
 		MinimumDistance = 100,
@@ -45,5 +20,31 @@ local Data_Mobs = {
 		},
 	},
 }
+
+for zoneId, zoneDef in pairs(Data_ZoneDefs) do
+	local mobsByName: {[string]: any} = {}
+	for _, spawnInfo in ipairs(zoneDef.MobSpawnTable or {}) do
+		local mobId = spawnInfo.MobId
+		local mobDef = Data_MobDefs[mobId]
+		if mobDef ~= nil then
+			local displayName = mobDef.DisplayName
+			mobsByName[displayName] = {
+				Name = displayName,
+				ParentZone = zoneId,
+				ModelTemplate = mobId,
+				DefaultHealth = mobDef.BaseHP,
+				HealthValue = mobDef.BaseHP,
+				AttackValue = mobDef.Damage,
+				CoinValue = mobDef.Rewards.Gold,
+				GemValue = mobDef.Rewards.Gems,
+				Weight = spawnInfo.Weight or 0,
+				CanBeEngaged = false,
+			}
+		end
+	end
+	Data_Mobs.Zones[zoneId] = {
+		Mobs = mobsByName,
+	}
+end
 
 return Data_Mobs

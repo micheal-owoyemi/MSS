@@ -1,6 +1,7 @@
 --!strict
 
 local CoreTypes = require(script.Parent.CoreTypes)
+local NetTypes = require(script.Parent.NetTypes)
 
 local NetPayloads = {}
 
@@ -26,5 +27,6 @@ export type CurrencyDeltaPayload = {
 }
 
 export type CurrencyUpdatePayload = CurrencySnapshotPayload | CurrencyDeltaPayload
+export type RequestAction = NetTypes.RequestAction
 
 return NetPayloads

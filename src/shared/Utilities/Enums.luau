@@ -1,9 +1,14 @@
 --!strict
 
+local Data_EconomyDefs = require(script.Parent.Parent.Data.Data_EconomyDefs)
+
+local currencies = {}
+for currencyName in pairs(Data_EconomyDefs.Currencies) do
+	currencies[currencyName] = currencyName
+end
+
 local Enums = {
-	Currencies = {
-		Gold = "Gold",
-	},
+	Currencies = table.freeze(currencies),
 
 	SaveContext = {
 		AutoSave = "AutoSave",

@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ProfileTypes = require(ReplicatedStorage.Types.ProfileTypes)
+local ValidationUtil = require(ReplicatedStorage.Util.ValidationUtil)
 
 local ProfileContext = {}
 
@@ -18,12 +19,8 @@ type DirtyContext = {
 
 local FALLBACK_REASON: ProfileResolveReason = "ProfileUnavailable"
 
-local function isPlayer(value: any): boolean
-	return typeof(value) == "Instance" and (value :: Instance):IsA("Player")
-end
-
 local function buildContext(dataStoreService: DataStoreServiceLike?, player: Player?): (ProfileContextRecord?, ProfileResolveReason?)
-	if not isPlayer(player) then
+	if not ValidationUtil.isPlayer(player) then
 		return nil, ("InvalidPlayer" :: ProfileResolveReason)
 	end
 
@@ -68,7 +65,7 @@ function ProfileContext.markDirty(context: (ProfileContextRecord | DirtyContext)
 
 	local dataStore = context.dataStore
 	local player = context.player
-	if dataStore == nil or not isPlayer(player) then
+	if dataStore == nil or not ValidationUtil.isPlayer(player) then
 		return false
 	end
 

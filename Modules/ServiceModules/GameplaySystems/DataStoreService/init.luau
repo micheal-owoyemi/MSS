@@ -1,8 +1,11 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
-local Enums = require(game:GetService("ReplicatedStorage").Utilities.Enums)
+local Knit = require(ReplicatedStorage.Packages.Knit)
+local Janitor = require(ReplicatedStorage.Packages.Janitor)
+local Enums = require(ReplicatedStorage.Utilities.Enums)
+local ProfileSchema = require(ReplicatedStorage.Types.ProfileSchema)
 
 local ProfileStoreModule = require(script.ProfileStore)
 local PlayerProfileClass = require(script.PlayerProfile)
@@ -14,7 +17,7 @@ local DataStoreService = Knit.CreateService {
 	Client = {},
 }
 
-local ProfileTemplate = require(game.ServerStorage.Data.Data_Player)
+local ProfileTemplate = ProfileSchema.getTemplate()
 local ClassToken = ReplicaService.NewClassToken("PlayerProfile")
 
 local PlayerStore = ProfileStoreModule.New("PlayerData", ProfileTemplate)
@@ -48,12 +51,53 @@ local DEBUG_REPLICA_LOGS = Config.DebugReplicaLogs
 
 local SessionLocks = {} -- [userId] = true when a session is active on this server
 local AutoSaveTokens = {} -- [player] = token controlling the autosave loop
+local PlayerJanitors: {[Player]: any} = {}
+local ServiceJanitor = Janitor.new()
 local ShuttingDown = false
 local PendingCommits = {} -- [playerProfile] = {deadline = os.clock(), context = context}
 local WriteStates = {} -- [playerProfile] = {pending = false, writing = false, context = SaveContext.ManualUpdate}
 local DirtyCommitThrottle = {} -- [playerProfile] = nextAllowedCommitAt
 
 local SaveContext = Enums.SaveContext
+local stopAutoSave
+local clearSessionLock
+
+local function getPlayerJanitor(player)
+	local janitor = PlayerJanitors[player]
+	if janitor ~= nil then
+		return janitor
+	end
+
+	janitor = Janitor.new()
+	PlayerJanitors[player] = janitor
+	janitor:Add(function()
+		stopAutoSave(player)
+		clearSessionLock(player)
+	end, true, "PlayerSessionCleanup")
+	return janitor
+end
+
+local function cleanupPlayerJanitor(player)
+	local janitor = PlayerJanitors[player]
+	if janitor == nil then
+		return
+	end
+
+	janitor:Cleanup()
+	PlayerJanitors[player] = nil
+end
+
+local function validateAndMigrateProfileData(profile, player)
+	local migratedData, migrationsApplied = ProfileSchema.migrateInPlace(profile.Data, os.time())
+	local isValid, reason = ProfileSchema.validate(migratedData)
+	if not isValid then
+		warn(string.format("[DataStoreService] Invalid profile data for %s: %s. Replacing with defaults.", player.Name, tostring(reason)))
+		migratedData = ProfileSchema.createDefault(os.time())
+	elseif migrationsApplied > 0 then
+		warn(string.format("[DataStoreService] Applied %d schema migration(s) for %s.", migrationsApplied, player.Name))
+	end
+	profile.Data = migratedData
+end
 
 local function isProfileDirty(playerProfile)
 	return playerProfile ~= nil and playerProfile._dirty == true
@@ -321,7 +365,7 @@ local function flushPendingCommit(playerProfile, context)
 	return true
 end
 
-local function stopAutoSave(player)
+stopAutoSave = function(player)
 	AutoSaveTokens[player] = nil
 end
 
@@ -355,7 +399,7 @@ local function startAutoSave(player)
 	end)
 end
 
-local function clearSessionLock(player)
+clearSessionLock = function(player)
 	SessionLocks[player.UserId] = nil
 end
 
@@ -443,8 +487,10 @@ local function PlayerAdded(player)
 	if profile ~= nil then
 		profile:AddUserId(player.UserId)
 		profile:Reconcile()
+		validateAndMigrateProfileData(profile, player)
+		local playerJanitor = getPlayerJanitor(player)
 
-		profile.OnSessionEnd:Connect(function()
+		playerJanitor:Add(profile.OnSessionEnd:Connect(function()
 			stopAutoSave(player)
 			clearSessionLock(player)
 
@@ -459,33 +505,35 @@ local function PlayerAdded(player)
 			if player:IsDescendantOf(Players) == true then
 				player:Kick("Profile session end - Please rejoin")
 			end
-		end)
+		end), "Disconnect", "ProfileSessionEndConnection")
 
 		if player:IsDescendantOf(Players) == true then
 			local replica = ReplicaService.NewReplica({
 				ClassToken = ClassToken,
 				Tags = { Player = player },
 				Data = profile.Data,
-				Replication = "All",
+				Replication = player,
 			})
 
 			if DEBUG_REPLICA_LOGS then
 				print("[DataStoreService] Replica data for", player.Name, replica.Data)
 			end
 
-			-- PlayerProfile.new is expected to populate Profiles[player] internally (same as your original).
-			PlayerProfile.new(profile, player, replica)
-			startAutoSave(player)
+				-- PlayerProfile.new is expected to populate Profiles[player] internally (same as your original).
+				PlayerProfile.new(profile, player, replica)
+				startAutoSave(player)
+			else
+				profile:EndSession()
+				clearSessionLock(player)
+				cleanupPlayerJanitor(player)
+			end
 		else
-			profile:EndSession()
 			clearSessionLock(player)
+			cleanupPlayerJanitor(player)
+			if player:IsDescendantOf(Players) == true then
+				player:Kick("Profile load fail - Please rejoin")
+			end
 		end
-	else
-		clearSessionLock(player)
-		if player:IsDescendantOf(Players) == true then
-			player:Kick("Profile load fail - Please rejoin")
-		end
-	end
 end
 
 local function PlayerRemoving(player)
@@ -505,12 +553,14 @@ local function PlayerRemoving(player)
 	end
 
 	clearSessionLock(player)
+	cleanupPlayerJanitor(player)
 end
 
 local function shutdownSavePlayer(player, deadline)
 	local playerProfile = Profiles[player]
 	if playerProfile == nil then
 		clearSessionLock(player)
+		cleanupPlayerJanitor(player)
 		return true
 	end
 
@@ -523,6 +573,7 @@ local function shutdownSavePlayer(player, deadline)
 			playerProfile:Release()
 		end
 		clearSessionLock(player)
+		cleanupPlayerJanitor(player)
 		return false
 	end
 
@@ -538,6 +589,7 @@ local function shutdownSavePlayer(player, deadline)
 
 	clearWriteState(playerProfile)
 	clearSessionLock(player)
+	cleanupPlayerJanitor(player)
 	return success
 end
 
@@ -670,8 +722,15 @@ function DataStoreService:KnitStart()
 		task.spawn(PlayerAdded, player)
 	end
 
-	Players.PlayerAdded:Connect(PlayerAdded)
-	Players.PlayerRemoving:Connect(PlayerRemoving)
+	ServiceJanitor:Add(Players.PlayerAdded:Connect(PlayerAdded), "Disconnect", "PlayerAddedConnection")
+	ServiceJanitor:Add(Players.PlayerRemoving:Connect(PlayerRemoving), "Disconnect", "PlayerRemovingConnection")
+end
+
+function DataStoreService:Destroy()
+	ServiceJanitor:Cleanup()
+	for player in pairs(PlayerJanitors) do
+		cleanupPlayerJanitor(player)
+	end
 end
 
 return DataStoreService

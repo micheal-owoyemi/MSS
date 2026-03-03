@@ -1,30 +1,6 @@
-local Data_Player = {
-	Meta = {
-		CreatedAt = 0,
-		LastOnline = 0,
-		TotalPlayTime = 0,
-		LastDailyReset = 0,
-	},
+--!strict
 
-	Progression = {
-		Level = 1,
-		XP = 0,
-	},
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ProfileSchema = require(ReplicatedStorage.Types.ProfileSchema)
 
-	Currencies = {
-		Gold = 0,
-	},
-
-	Inventory = {
-		Weapons = {},
-	},
-
-	Settings = {},
-
-	Flags = {
-		HasCompletedTutorial = false,
-		ClaimedStarterPack = false,
-	},
-}
-
-return Data_Player
+return ProfileSchema.getTemplate()

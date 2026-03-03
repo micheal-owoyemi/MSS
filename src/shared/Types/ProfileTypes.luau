@@ -1,6 +1,7 @@
 --!strict
 
 local CoreTypes = require(script.Parent.CoreTypes)
+local ProfileSchema = require(script.Parent.ProfileSchema)
 
 local ProfileTypes = {}
 
@@ -8,7 +9,7 @@ type UserId = CoreTypes.UserId
 
 export type ProfileResolveReason = "InvalidPlayer" | "ServiceUnavailable" | "ProfileUnavailable" | "ProfileLoadTimeout"
 
-export type ProfileData = {[string]: any}
+export type ProfileData = ProfileSchema.ProfileData
 export type ReplicaPath = {string | number}
 
 export type ReplicaLike = {

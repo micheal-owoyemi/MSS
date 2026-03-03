@@ -1,14 +1,14 @@
 --!strict
 
-local CoreTypes = require(script.Parent.CoreTypes)
+local ItemTypes = require(script.Parent.ItemTypes)
 
 local InventoryTypes = {}
 
-type Currency = CoreTypes.Currency
-
-export type InventoryItem = {
-    id: string,
-    quantity: number,
-}
+export type InventoryItem = ItemTypes.BaseItem
+export type WeaponItem = ItemTypes.WeaponItem
+export type StackableItem = ItemTypes.StackableItem
+export type ConsumableItem = ItemTypes.ConsumableItem
+export type GiftPayload = ItemTypes.GiftPayload
+export type TradeOffer = ItemTypes.TradeOffer
 
 return InventoryTypes
