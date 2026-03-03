@@ -1,45 +1,44 @@
 # MSS
 
-Roblox game project using a modular, server-authoritative architecture aligned to the Glowie service/data style.
+Roblox game project organized around a Knit-style service/controller architecture.
 
 ## Architecture
 
-### Runtime bootstrap
-- `src/server/init.server.luau`: starts `ServiceRuntime`.
-- `src/client/init.client.luau`: starts `ControllerRuntime`.
+### Startup
+- `src/server/init.server.luau`: boots Knit server services.
+- `src/client/init.client.luau`: boots Knit client controllers.
 
-### Server modules
-- `Modules/Data/Data_*`: server-owned gameplay data/config.
-  - `Data_Combat.luau`
-  - `Data_GameplayManager.luau`
-  - `Data_Player.luau`
-- `Modules/ServiceModules/GamePlaySystems/*`:
-  - `GamePlayManagerService`: fixed-rate heartbeat manager + scheduler.
+### Server
+- `src/server/Services/GameplayServices/*`
+  - `GameplayManagerService`: fixed-rate heartbeat manager + scheduler.
   - `NetworkService`: remote function contract setup.
   - `DataStoreService`: profile/data API.
   - `WeaponService`: player weapon lifecycle + inventory fetch API.
-  - `MobService`: spawn/attack orchestration.
-  - `CombatService`: packet intake, request validation, queueing, and tick-based processing.
+  - `MobService`: mob spawning and combat routing.
+  - `CombatService`: packet intake, validation, queueing, tick-based attack processing.
   - `WeaponReplicationService`: weapon replication packet fan-out.
+- `src/server/Services/GameplayServices/Support/*`
+  - combat gate/validation helpers.
+- `src/server/Gameplay/Mob/*`
+  - mob domain runtime (`MobManager`, `MobEntity`).
+- `src/server/Config/Data_*.luau`
+  - server-owned gameplay config definitions.
 
-### Shared data + network
+### Client
+- `src/client/Controllers/GameplayControllers/*`
+  - gameplay-facing Knit controllers (`Profile`, `UI`, `VFX`, `WeaponReplication`).
+- `src/client/Gameplay/*`
+  - client gameplay modules by domain (`Weapon`, `Combat`, `VFX`).
+
+### Shared
 - `src/shared/Data/Data_*.luau`: shared data contracts.
-- `src/shared/Network/GameplayPacket.luau`: gameplay packet namespace.
-- `src/shared/Network/WeaponPacket.luau`: weapon replication packet namespace.
-- `src/shared/Network/NetworkApi.luau`: shared API for packets + remote function lookup.
+- `src/shared/Network/*`: ByteNet packet namespaces + shared network API.
+- `src/shared/Utilities/*`: world access, packet subscriptions, weapon data/formation/payload helpers.
+- `src/shared/ByteNet`, `src/shared/Zone`, `src/shared/Trove`, `src/shared/ReplicaController`, etc.
 
-## Server-authoritative guarantees
+## Server-authoritative behavior
 
-- Combat input is received as packets, validated server-side, then queued.
-- Damage application is processed on manager ticks, not directly on client event timing.
-- Cooldowns/rate limiting are enforced on the server.
-- Equipped weapon state is read from profile data on the server.
-- Remotes/functions are created by server startup.
-
-## Development notes
-
-- `default.project.json` mappings:
-  - `ServerStorage.Data -> Modules/Data`
-  - `ServerStorage.ServiceModules -> Modules/ServiceModules`
-- Regenerate sourcemap:
-  - `rojo sourcemap default.project.json -o sourcemap.json`
+- Combat requests are sent as packets and validated on the server.
+- Damage application runs on server ticks through `GameplayManagerService`.
+- Cooldowns/rate limiting are enforced server-side.
+- Equipped weapon state is sourced from server profile data.

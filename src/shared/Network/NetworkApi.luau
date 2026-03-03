@@ -15,10 +15,13 @@ function NetworkApi.getRemoteFunctionsFolder(): Folder
 	return ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RemoteFunctions") :: Folder
 end
 
+local function resolveRemoteFunctionName(name: string): string
+	return DataNetwork.RemoteFunctions[name] or name
+end
+
 function NetworkApi.getRemoteFunction(name: string): RemoteFunction?
 	local remoteFunctions = NetworkApi.getRemoteFunctionsFolder()
-	local resolvedName = DataNetwork.RemoteFunctions[name] or name
-	local remoteFunction = remoteFunctions:FindFirstChild(resolvedName)
+	local remoteFunction = remoteFunctions:FindFirstChild(resolveRemoteFunctionName(name))
 	if remoteFunction and remoteFunction:IsA("RemoteFunction") then
 		return remoteFunction
 	end
@@ -28,8 +31,7 @@ end
 
 function NetworkApi.waitForRemoteFunction(name: string): RemoteFunction
 	local remoteFunctions = NetworkApi.getRemoteFunctionsFolder()
-	local resolvedName = DataNetwork.RemoteFunctions[name] or name
-	return remoteFunctions:WaitForChild(resolvedName) :: RemoteFunction
+	return remoteFunctions:WaitForChild(resolveRemoteFunctionName(name)) :: RemoteFunction
 end
 
 return NetworkApi

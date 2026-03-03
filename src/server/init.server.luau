@@ -1,4 +1,8 @@
-local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ServiceRuntime = require(ServerScriptService.Server.Bootstrap.ServiceRuntime)
-ServiceRuntime.start()
+local Knit = require(ReplicatedStorage.Packages.Knit)
+
+Knit.AddServices(script.Parent.Services)
+Knit.Start():catch(function(err)
+	warn("[KnitServer] Failed to start:", err)
+end)

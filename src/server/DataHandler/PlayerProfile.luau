@@ -53,7 +53,17 @@ function PlayerProfile:addWeapon(weaponObject)
     newWeaponData[UUID] = weaponData
     
     self.Replica:SetValue({'Weapons'}, newWeaponData)
-    print('[PlayerProfile] Weapon Added:', self.Replica.Data)
+end
+
+local function setWeaponEquipped(profile, weaponUUID, isEquipped)
+    local newWeaponData = profile.Replica.Data.Weapons
+    local weaponData = newWeaponData[weaponUUID]
+    if type(weaponData) ~= "table" then
+        return
+    end
+
+    weaponData.equipped = isEquipped == true
+    profile.Replica:SetValue({'Weapons'}, newWeaponData)
 end
 
 function PlayerProfile:equipWeapon(weaponUUID)
@@ -61,11 +71,7 @@ function PlayerProfile:equipWeapon(weaponUUID)
         return
     end
 
-    local newWeaponData = self.Replica.Data.Weapons
-
-    newWeaponData[weaponUUID].equipped = true
-    
-    self.Replica:SetValue({'Weapons'}, newWeaponData)
+    setWeaponEquipped(self, weaponUUID, true)
 end
 
 function PlayerProfile:unequipWeapon(weaponUUID)
@@ -73,11 +79,7 @@ function PlayerProfile:unequipWeapon(weaponUUID)
         return
     end
 
-    local newWeaponData = self.Replica.Data.Weapons
-
-    newWeaponData[weaponUUID].equipped = false
-    
-    self.Replica:SetValue({'Weapons'}, newWeaponData)
+    setWeaponEquipped(self, weaponUUID, false)
 end
 
 function PlayerProfile:getWeapons()
