@@ -1,0 +1,51 @@
+{
+  "name": "MSS",  
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "$path": "src/shared",
+      "Packages": {
+        "$path": "Packages"
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "$ignoreUnknownInstances": true,
+      "Data": {
+        "$path": "Modules/Data"
+      },
+      "ServiceModules": {
+        "$path": "Modules/ServiceModules",
+        "GameplayLogic": {
+          "$path": "Modules/ServiceModules/GameplayLogic"
+        },
+        "GamePlaySystems": {
+          "$path": "Modules/ServiceModules/GamePlaySystems"
+        }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true
+    },
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    }
+  }
+}
