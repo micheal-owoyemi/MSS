@@ -7,17 +7,35 @@ local function makeMob(mobName: string, values: { [string]: any }?)
 	end
 
 	local definition = values or {}
-	local maxHealth = definition.HealthValue or 100
+	local defaultHealth = definition.DefaultHealth or definition.HealthValue or 100
+	local currentHealth = definition.Health or definition.CurrentHealth or defaultHealth
+	local canBeEngaged = definition.CanBeEngaged
+	if canBeEngaged == nil then
+		canBeEngaged = false
+	end
 
 	return {
 		Name = definition.Name or mobName,
-		HealthValue = maxHealth,
-		AttackValue = definition.AttackValue or 1,
-		CoinValue = definition.CoinValue or 10,
-		GemValue = definition.GemValue or 1,
-		Weight = definition.Weight or 1,
+		UUID = definition.UUID,
+		ParentZone = definition.ParentZone,
 
-		CurrentHealth = maxHealth,
+		DefaultHealth = defaultHealth,
+		Health = currentHealth,
+		HealthValue = defaultHealth,
+		CurrentHealth = currentHealth,
+
+		AttackValue = definition.AttackValue or 0,
+
+		CoinValue = definition.CoinValue or 0,
+		GemValue = definition.GemValue or 0,
+
+		Weight = definition.Weight or 0,
+
+
+		SpawnLocation = definition.SpawnLocation,
+		CanBeEngaged = canBeEngaged,
+		DamageDoneByPlayers = {},
+
 		SpawnedAt = 0,
 		LastDamagedAt = 0,
 	}
