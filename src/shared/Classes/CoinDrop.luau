@@ -16,18 +16,18 @@ local coinDictionary = {}
 function CoinDrop.spawn(originCFrame, coinAmount, Player)
     local coinObject = ReplicatedStorage.Shared:WaitForChild('Assets').VFX.CoinDrop:Clone()
 
-    local coinInstances = coinAmount / 10
+    local coinInstances = math.max(1, math.floor((tonumber(coinAmount) or 0) / 10))
     local coinInstanceTable = {}
 
-    for i = 0, coinInstances do
+    for _ = 1, coinInstances do
         local coin = coinObject:Clone()
         coin.CFrame = originCFrame
         coin.Parent = workspace:WaitForChild('Game'):WaitForChild('FX')
 
-        local randomX = {math.random(-10, -2), math.random(2, 10)}
-        local randomZ = {math.random(-10, -2), math.random(2, 10)}
+        local randomX = { math.random(-10, -2), math.random(2, 10) }
+        local randomZ = { math.random(-10, -2), math.random(2, 10) }
 
-        local velocity = Vector3.new(randomX[math.random(1, 10)], math.random(50, 100), randomZ[math.random(1, 10)])
+        local velocity = Vector3.new(randomX[math.random(1, 2)], math.random(50, 100), randomZ[math.random(1, 2)])
 
         coin.AssemblyLinearVelocity = velocity
 

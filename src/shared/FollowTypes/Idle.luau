@@ -2,7 +2,7 @@
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 
 -- MODULES
-local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
+local WeaponConfig = require(ReplicatedStorage.Shared.Data.Data_Weapons)
 
 -- VARIABLES
 local rayParams = RaycastParams.new()

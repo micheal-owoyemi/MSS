@@ -1,0 +1,3 @@
+return {
+	HeartbeatRateHz = 10,
+}

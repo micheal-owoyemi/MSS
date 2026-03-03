@@ -2,20 +2,32 @@
   "name": "MSS",
   "tree": {
     "$className": "DataModel",
-
     "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
       "Shared": {
         "$path": "src/shared",
         "$ignoreUnknownInstances": true
       }
     },
-
     "ServerScriptService": {
       "Server": {
         "$path": "src/server"
       }
     },
-    
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "$ignoreUnknownInstances": true,
+      "Data": {
+        "$path": "Modules/Data"
+      },
+      "ServiceModules": {
+        "$path": "Modules/ServiceModules",
+        "GamePlaySystems": {
+          "$path": "Modules/ServiceModules/GamePlaySystems"
+        }
+      }
+    },
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "Client": {
@@ -23,6 +35,5 @@
         }
       }
     }
-
-  } 
+  }
 }

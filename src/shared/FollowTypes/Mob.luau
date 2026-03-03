@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local TweenService = game:GetService('TweenService')
 
 -- MODULES
-local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
+local WeaponConfig = require(ReplicatedStorage.Shared.Data.Data_Weapons)
 local Attack = require(ReplicatedStorage.Shared.AttackTypes.Attack)
 
 -- VARIABLES
@@ -12,8 +12,6 @@ local rayDirection = Vector3.new(0, -500, 0)
 
 local weaponsFolder = workspace:WaitForChild('Game'):WaitForChild('Weapons')
 
-local distance
-local lastTick = tick()
 
 -- REMOTES
 
@@ -96,13 +94,14 @@ local function UpdateWeaponPositions(weaponFolder, mobInstance, weapon, speed, o
 
         
 
-        distance = absDistance(targetCFrame.X,  Weapon.PrimaryPart.CFrame.X)
+        local distance = absDistance(targetCFrame.X,  Weapon.PrimaryPart.CFrame.X)
 
         if distance < 0.5 then
             local currentTick = tick()
+            local lastAttackTick = Weapon:GetAttribute("LastAttackTick") or 0
             
-            if currentTick - lastTick >= 2 and mobInstance then
-                lastTick = tick()
+            if currentTick - lastAttackTick >= 2 and mobInstance then
+                Weapon:SetAttribute("LastAttackTick", currentTick)
                 playAttackAnimation(Weapon, mobInstance, X, Y, Z, zOffset)
                 Attack(mobInstance)
             end

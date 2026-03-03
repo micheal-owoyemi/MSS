@@ -7,9 +7,10 @@ local RunService = game:GetService('RunService')
 local UserInputService = game:GetService('UserInputService')
 
 -- MODULES
-local WeaponConfig = require(ReplicatedStorage.Shared.Configs.WeaponConfig)
-local WeaponPacket = require(ReplicatedStorage.Shared.Network.WeaponPacket)
-local MobConfig =  require(ReplicatedStorage.Shared.Configs.MobConfig)
+local WeaponConfig = require(ReplicatedStorage.Shared.Data.Data_Weapons)
+local NetworkApi = require(ReplicatedStorage.Shared.Network.NetworkApi)
+local WeaponPacket = NetworkApi.Packets.Weapon
+local MobConfig = require(ReplicatedStorage.Shared.Data.Data_Mobs)
 
 local PID = require(ReplicatedStorage.Shared.PID)
 local Trove = require(ReplicatedStorage.Shared.Trove)
@@ -28,7 +29,7 @@ function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, e
         weaponType = weaponType,
         weaponName = weaponName,
         weaponModel = ReplicatedStorage.Shared.Assets.Weapons[weaponType][weaponName].Model:Clone(),
-        folder = workspace:WaitForChild('Game'):WaitForChild('Weapons')[player.UserId],
+        folder = workspace:WaitForChild('Game'):WaitForChild('Weapons'):WaitForChild(tostring(player.UserId)),
 
         equipped = equipped,
         engaged = false,
@@ -39,6 +40,8 @@ function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, e
 
         trove = Trove.new(),
         pid = PID.new(0, 1, 0.0375, 0, 0),
+        idleRenderStepName = `WeaponRender_{uuid}`,
+        mobRenderStepName = `MobWeaponRender_{uuid}`,
 
         mobIdle = require(ReplicatedStorage.Shared.FollowTypes.Mob),
         idle = require(ReplicatedStorage.Shared.FollowTypes.Idle),
@@ -46,6 +49,8 @@ function WeaponClass.new(uuid: string, weaponType: string, weaponName: string, e
         
 
     }, WeaponClass)
+
+    self.weaponModel.Name = uuid
     
     if equipped == true then  
         self.weaponModel.Parent = self.folder
@@ -73,7 +78,7 @@ function WeaponClass:disengageMob(target: MeshPart)
     if target == self.target and self.engaged then
         self.target = nil
         self.engaged = false
-        RunService:UnbindFromRenderStep("Mob Weapon Render")
+        RunService:UnbindFromRenderStep(self.mobRenderStepName)
 
         self:setUpMovementDetection()
     end
@@ -91,14 +96,15 @@ function WeaponClass:engageMob(target: MeshPart)
 
     commandAnim:Play()
     task.wait(commandAnim.Length/4)
-    RunService:UnbindFromRenderStep('Weapon Render')
+    RunService:UnbindFromRenderStep(self.idleRenderStepName)
 
 
     local function mobWeaponRender(dt)
         self.mobIdle(self.folder, target, self.weaponModel, 0.03)
     end
 
-    RunService:BindToRenderStep('Mob Weapon Render', 0, mobWeaponRender)
+    RunService:UnbindFromRenderStep(self.mobRenderStepName)
+    RunService:BindToRenderStep(self.mobRenderStepName, 0, mobWeaponRender)
 end
 
 
@@ -124,7 +130,8 @@ function WeaponClass:setUpMovementDetection()
             wait(0.1)
         end
         
-        RunService:BindToRenderStep('Weapon Render', 0, weaponRender)
+        RunService:UnbindFromRenderStep(self.idleRenderStepName)
+        RunService:BindToRenderStep(self.idleRenderStepName, 0, weaponRender)
     end
 end
 
@@ -138,7 +145,7 @@ function WeaponClass:setupTargetDetection()
                 self.engaged = false
 				self:setUpInteractionDetection(self.player)
 				self:setUpMovementDetection()
-				RunService:UnbindFromRenderStep("Mob Weapon Render")
+				RunService:UnbindFromRenderStep(self.mobRenderStepName)
 				connection:Disconnect()	
 			end
 		end
@@ -240,6 +247,8 @@ end
 
 
 function WeaponClass:despawn()
+    RunService:UnbindFromRenderStep(self.idleRenderStepName)
+    RunService:UnbindFromRenderStep(self.mobRenderStepName)
     self.weaponModel:Destroy()
 
     setmetatable(self, nil)
