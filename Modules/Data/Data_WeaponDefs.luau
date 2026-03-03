@@ -1,6 +1,7 @@
 --!strict
 
-local TableUtil = require(script.Parent.Parent.Util.TableUtil)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TableUtil = require(ReplicatedStorage.Util.TableUtil)
 
 local Data_WeaponDefs = {
 	RustySword = {

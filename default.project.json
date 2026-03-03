@@ -6,8 +6,14 @@
       "$className": "ReplicatedStorage",
       "$ignoreUnknownInstances": true,
       "$path": "src/shared",
+      "Data": {
+        "$path": "Modules/Data"
+      },
       "Packages": {
-        "$path": "Packages"
+        "$path": "Packages",
+        "knit": {
+          "$path": "Packages/Knit.lua"
+        }
       }
     },
     "ServerScriptService": {

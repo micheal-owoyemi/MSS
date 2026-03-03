@@ -115,7 +115,7 @@ local function sanitizeNumber(rawValue: any, fallback: number, minValue: number?
 		value = maxValue
 	end
 
-	return value
+	return value :: number
 end
 
 local function ensureTable(container: {[string]: any}, key: string): {[string]: any}
