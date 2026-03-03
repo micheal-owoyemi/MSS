@@ -7,3 +7,5 @@ realm = "shared"
 [dependencies]
 
 Knit = "sleitnick/knit@^1.7"
+
+Janitor = "howmanysmall/janitor@^1.17.0"
