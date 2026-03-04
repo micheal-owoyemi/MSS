@@ -250,14 +250,15 @@ local ReplicaService = {
 
 ----- Loaded Services & Modules -----
 
-local RateLimiter = require(Madwork.GetShared("Madwork", "RateLimiter"))
 local MadworkMaid = require(Madwork.GetShared("Madwork", "MadworkMaid"))
-local RequestRateLimiter = require(game:GetService("ReplicatedStorage").Supporters.RequestRateLimiter)
+local ServerStorage = game:GetService("ServerStorage")
+local ServiceModules = ServerStorage:WaitForChild("ServiceModules")
+local SupportersFolder = ServiceModules:WaitForChild("Supporters")
+local RateLimiter = require(SupportersFolder:WaitForChild("RateLimiter"))
 
 ----- Private Variables -----
 
-local DefaultRateLimiter = RateLimiter.Default
-local RemoteSignalRateLimiter = RequestRateLimiter.new()
+local RemoteSignalRateLimiter = RateLimiter.new()
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1039,8 +1040,7 @@ end)
 rev_ReplicaSignal.OnServerEvent:Connect(function(player, replica_id, ...)
 	-- Missing player prevention, spam prevention and exploit prevention:
 	if ActivePlayers[player] == nil
-		or RemoteSignalRateLimiter:Allow(player.UserId, "ReplicaSignal") == false
-		or DefaultRateLimiter:CheckRate(player) == false
+		or RemoteSignalRateLimiter:Consume(player, "ReplicaSignal") == false
 		or type(replica_id) ~= "number" then
 		return
 	end
@@ -1065,7 +1065,7 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 	-- Remove player from ready players list:
 	ActivePlayers[player] = nil
-	RemoteSignalRateLimiter:ClearUser(player.UserId)
+	RemoteSignalRateLimiter:ClearPlayer(player)
 	ReplicaService.RemovedActivePlayerSignal:Fire(player)
 end)
 
