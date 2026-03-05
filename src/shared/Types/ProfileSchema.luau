@@ -17,6 +17,7 @@ export type InventoryRecord = {
 	Stackables: {[string]: number},
 	Consumables: {[string]: number},
 	Gifts: {[string]: any},
+	LockedItems: {[string]: {Reason: string?, LockedAt: number}},
 }
 
 export type ProfileData = {
@@ -78,6 +79,7 @@ local DEFAULT_PROFILE_TEMPLATE: ProfileData = {
 		Stackables = {},
 		Consumables = {},
 		Gifts = {},
+		LockedItems = {},
 	},
 	EquippedSlots = {
 		PrimaryWeapon = "",
@@ -150,6 +152,20 @@ local function sanitizeInventory(inventory: {[string]: any})
 	end
 	if typeof(inventory.Gifts) ~= "table" then
 		inventory.Gifts = {}
+	end
+	if typeof(inventory.LockedItems) ~= "table" then
+		inventory.LockedItems = {}
+	end
+
+	for uid, lockRecord in pairs(inventory.LockedItems) do
+		if not ValidationUtil.isNonEmptyString(uid) or typeof(lockRecord) ~= "table" then
+			inventory.LockedItems[uid] = nil
+		else
+			lockRecord.LockedAt = sanitizeNumber(lockRecord.LockedAt, 0, 0, nil)
+			if lockRecord.Reason ~= nil and typeof(lockRecord.Reason) ~= "string" then
+				lockRecord.Reason = nil
+			end
+		end
 	end
 end
 
@@ -290,6 +306,9 @@ local function validate(profileData: any): (boolean, string?)
 	end
 	if typeof(profileData.Inventory) ~= "table" then
 		return false, "MissingInventory"
+	end
+	if typeof(profileData.Inventory.LockedItems) ~= "table" then
+		return false, "MissingLockedItems"
 	end
 	if typeof(profileData.EquippedSlots) ~= "table" then
 		return false, "MissingEquippedSlots"

@@ -4,12 +4,13 @@ local ValidationUtil = require(script.Parent.Parent.Util.ValidationUtil)
 
 local ItemTypes = {}
 
-export type ItemKind = "Weapon" | "Stackable" | "Consumable" | "Gift"
+export type ItemType = "Weapon" | "Stackable" | "Consumable" | "Gift"
 export type Rarity = "Common" | "Uncommon" | "Rare" | "Epic" | "Legendary" | "Mythic"
 
 export type BaseItem = {
-	ItemId: string,
-	Kind: ItemKind,
+	Uid: string,
+	DefId: string,
+	Type: ItemType,
 	DisplayName: string,
 	Rarity: Rarity,
 	Quantity: number,
@@ -17,7 +18,7 @@ export type BaseItem = {
 }
 
 export type WeaponItem = BaseItem & {
-	Kind: "Weapon",
+	Type: "Weapon",
 	WeaponDefId: string,
 	Level: number,
 	RolledStats: {[string]: number},
@@ -25,13 +26,13 @@ export type WeaponItem = BaseItem & {
 }
 
 export type StackableItem = BaseItem & {
-	Kind: "Stackable",
+	Type: "Stackable",
 	StackKey: string,
 	MaxStack: number,
 }
 
 export type ConsumableItem = BaseItem & {
-	Kind: "Consumable",
+	Type: "Consumable",
 	EffectId: string,
 	DurationSeconds: number,
 }
@@ -56,22 +57,33 @@ export type TradeOffer = {
 	ExpiresAt: number,
 }
 
-local ITEM_KINDS = table.freeze({
+local ITEM_TYPES: {[string]: ItemType} = table.freeze({
 	Weapon = "Weapon",
 	Stackable = "Stackable",
 	Consumable = "Consumable",
 	Gift = "Gift",
 })
 
+local function isValidItemType(rawType: any): boolean
+	return typeof(rawType) == "string" and ITEM_TYPES[rawType] ~= nil
+end
+
 local function isValidBaseItem(raw: any): boolean
 	if typeof(raw) ~= "table" then
 		return false
 	end
 
-	if not ValidationUtil.isNonEmptyString(raw.ItemId) then
+	if not ValidationUtil.isNonEmptyString(raw.Uid) then
 		return false
 	end
-	if not ValidationUtil.isNonEmptyString(raw.Kind) then
+	if not ValidationUtil.isNonEmptyString(raw.DefId) then
+		return false
+	end
+	local itemType = raw.ItemType
+	if itemType == nil then
+		itemType = raw.Type
+	end
+	if not isValidItemType(itemType) then
 		return false
 	end
 	if not ValidationUtil.isNonEmptyString(raw.DisplayName) then
@@ -90,7 +102,17 @@ local function isValidBaseItem(raw: any): boolean
 	return true
 end
 
-ItemTypes.ItemKinds = ITEM_KINDS
+local function sanitizeQuantity(rawQuantity: any, fallback: number): number
+	local quantity = tonumber(rawQuantity)
+	if not ValidationUtil.isFiniteNumber(quantity) then
+		return fallback
+	end
+	return math.max(0, math.floor(quantity :: number))
+end
+
+ItemTypes.ItemTypes = ITEM_TYPES
+ItemTypes.isValidItemType = isValidItemType
 ItemTypes.isValidBaseItem = isValidBaseItem
+ItemTypes.sanitizeQuantity = sanitizeQuantity
 
 return ItemTypes

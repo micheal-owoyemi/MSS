@@ -4,27 +4,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TableUtil = require(ReplicatedStorage.Util.TableUtil)
 
 local Data_ZoneDefs = {
-	Starter = {
-		DisplayName = "Starter",
-		UnlockRequirement = {
-			Currency = "Gold",
-			Amount = 0,
-		},
-		MobSpawnTable = {},
-		SpawnPoints = {},
-		TeleportPoints = {
-			Default = Vector3.new(0, 5, 0),
-		},
-		Bounds = {
-			Min = Vector3.new(-128, 0, -128),
-			Max = Vector3.new(128, 256, 128),
-		},
-	},
 	Castle = {
 		DisplayName = "Castle",
 		UnlockRequirement = {
 			Currency = "Gold",
-			Amount = 100,
+			Amount = 0,
 		},
 		MobSpawnTable = {
 			{MobId = "ChestMimic", Weight = 60},
