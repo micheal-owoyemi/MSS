@@ -34,6 +34,8 @@ export type DataStoreServiceLike = {
 	GetProfileAsync: (self: DataStoreServiceLike, player: Player, timeoutSeconds: number?) -> (PlayerProfileLike?, ProfileResolveReason?),
 	MarkDirty: (self: DataStoreServiceLike, player: Player, contextTag: string?) -> boolean,
 	MarkDirtyThrottled: ((self: DataStoreServiceLike, player: Player, contextTag: string?, minIntervalSeconds: number?) -> boolean)?,
+	UpdateAsync: ((self: DataStoreServiceLike, player: Player, mutator: (ProfileData, ReplicaLike?) -> (), contextTag: string?) -> boolean)?,
+	SetAsync: ((self: DataStoreServiceLike, player: Player, contextTag: string?) -> boolean)?,
 }
 
 export type ProfileContextRecord = {
@@ -43,6 +45,52 @@ export type ProfileContextRecord = {
 	data: ProfileData,
 	replica: ReplicaLike?,
 	userId: UserId,
+}
+
+export type ProfileSnapshot = {
+	Snapshot: {
+		Revision: number,
+		GeneratedAt: number,
+		SchemaVersion: number,
+	},
+	Meta: {
+		CreatedAt: number,
+		LastOnline: number,
+		TotalPlayTime: number,
+		LastDailyReset: number,
+	},
+	Progression: {
+		Level: number,
+		XP: number,
+	},
+	Currencies: {[string]: number},
+	Inventory: {
+		Weapons: {[string]: any},
+		Stackables: {[string]: number},
+		Consumables: {[string]: number},
+		Gifts: {[string]: any},
+	},
+	EquippedSlots: {[string]: string},
+	UnlockedZones: {[string]: boolean},
+	Boosts: {[string]: {Multiplier: number, ExpiresAt: number, Stacks: number}},
+	QuestProgress: {[string]: {Progress: number, Claimed: boolean, UpdatedAt: number}},
+	Stats: {
+		TotalKills: number,
+		TotalDeaths: number,
+		TotalDamageDealt: number,
+		TotalDamageTaken: number,
+	},
+	Flags: {
+		HasCompletedTutorial: boolean,
+		ClaimedStarterPack: boolean,
+	},
+}
+
+export type PlayerDataServiceLike = {
+	GetProfile: (self: PlayerDataServiceLike, player: Player) -> (ProfileData?, string?),
+	RequestSnapshot: (self: PlayerDataServiceLike, player: Player) -> (ProfileSnapshot?, string?),
+	ForceSave: (self: PlayerDataServiceLike, player: Player) -> (boolean, string?),
+	MutateProfile: (self: PlayerDataServiceLike, player: Player, transformFn: (ProfileData, ReplicaLike?) -> any, contextTag: string?) -> (boolean, string?),
 }
 
 return ProfileTypes

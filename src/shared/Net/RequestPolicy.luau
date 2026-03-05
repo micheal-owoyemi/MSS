@@ -60,6 +60,12 @@ local ACTION_LIMITS: {[string]: RequestLimit} = {
 		Sustain = 6,
 		SustainWindowSeconds = 30,
 	},
+	RequestSnapshot = {
+		Burst = 3,
+		BurstWindowSeconds = 1,
+		Sustain = 18,
+		SustainWindowSeconds = 10,
+	},
 	ReplicaSignal = {
 		Burst = 30,
 		BurstWindowSeconds = 1,
