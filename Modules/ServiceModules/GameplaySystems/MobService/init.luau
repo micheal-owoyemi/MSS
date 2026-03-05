@@ -1,9 +1,9 @@
 --!strict
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Janitor = require(ReplicatedStorage.Packages.Janitor)
@@ -13,13 +13,16 @@ local ZoneDefs = require(ReplicatedStorage.Configs.ZoneDefs)
 
 local Config = require(script.Config)
 local ModelResolver = require(script.ModelResolver)
+local StateSerializer = require(script.StateSerializer)
+local ReplicationBuffer = require(script.ReplicationBuffer)
 
-local ServerStorage = game:GetService("ServerStorage")
 local ServiceModules = ServerStorage:WaitForChild("ServiceModules")
 local SupportersFolder = ServiceModules:WaitForChild("Supporters")
 local MobBrain = require(SupportersFolder:WaitForChild("MobBrain"))
+local ZoneQueryHelper = require(SupportersFolder:WaitForChild("ZoneQueryHelper"))
 
 type ZoneServiceLike = {
+	GetPlayerZone: (self: ZoneServiceLike, player: Player) -> (string?, string?),
 	IsMobTargetValidForZone: (self: ZoneServiceLike, mob: any, player: Player) -> (boolean, string?),
 }
 
@@ -27,25 +30,44 @@ type RewardServiceLike = {
 	GrantMobKillRewards: (self: RewardServiceLike, mobId: string, contributionSnapshot: {[string]: any}) -> any,
 }
 
-type SpawnSlot = {
+type GameplayManagerServiceLike = {
+	RegisterSystem: (self: GameplayManagerServiceLike, name: string, system: {[string]: any}) -> (),
+	UnregisterSystem: (self: GameplayManagerServiceLike, name: string) -> (),
+}
+
+type MobClientState = {
+	MobId: string,
+	MobDefId: string,
 	ZoneId: string,
 	SpawnIndex: number,
+	Position: Vector3,
+	Facing: Vector3,
+	HP: number,
+	MaxHP: number,
+	Alive: boolean,
+	Attackable: boolean,
+	BrainState: string,
+	TargetUserId: number?,
+	Revision: number,
+}
+
+type MobServerState = {
 	SpawnOrigin: Vector3,
+	LastStateSyncAt: number,
+	LastDamagedAt: number,
+	RespawnAt: number?,
 }
 
 type MobRuntimeRecord = {
 	MobId: string,
 	ZoneId: string,
 	SpawnIndex: number,
-	SpawnOrigin: Vector3,
 	MobDefId: string,
 	MobDef: {[string]: any},
 	Model: Model?,
 	Brain: any?,
-	Alive: boolean,
-	Attackable: boolean,
-	Health: number,
-	MaxHealth: number,
+	ClientState: MobClientState,
+	ServerState: MobServerState,
 	Attackers: {[Player]: true},
 	RespawnToken: {[string]: any}?,
 	ResolvingDeath: boolean,
@@ -66,38 +88,71 @@ local function resolveCharacterHumanoid(player: Player): Humanoid?
 	end
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid == nil then
-		return nil
-	end
-
-	if humanoid.Health <= 0 then
+	if humanoid == nil or humanoid.Health <= 0 then
 		return nil
 	end
 
 	return humanoid
 end
 
-local function resolveModelPosition(model: Model?, fallback: Vector3): Vector3
-	if model == nil then
-		return fallback
+local function resolveCharacterRootPosition(player: Player): Vector3?
+	local character = player.Character
+	if character == nil then
+		return nil
 	end
 
-	if model.PrimaryPart ~= nil then
-		return model.PrimaryPart.Position
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
+		return humanoidRootPart.Position
 	end
 
-	local rootPart = model:FindFirstChild("HumanoidRootPart")
-	if rootPart and rootPart:IsA("BasePart") then
-		return rootPart.Position
+	if character.PrimaryPart ~= nil then
+		return character.PrimaryPart.Position
 	end
 
-	for _, descendant in ipairs(model:GetDescendants()) do
+	for _, descendant in ipairs(character:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			return descendant.Position
 		end
 	end
 
-	return fallback
+	return nil
+end
+
+local function resolveModelPositionAndFacing(model: Model?, fallbackPosition: Vector3, fallbackFacing: Vector3): (Vector3, Vector3)
+	if model == nil then
+		return fallbackPosition, fallbackFacing
+	end
+
+	local rootPart: BasePart? = nil
+	if model.PrimaryPart ~= nil then
+		rootPart = model.PrimaryPart
+	else
+		local humanoidRootPart = model:FindFirstChild("HumanoidRootPart")
+		if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
+			rootPart = humanoidRootPart
+		end
+	end
+
+	if rootPart == nil then
+		for _, descendant in ipairs(model:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				rootPart = descendant
+				break
+			end
+		end
+	end
+
+	if rootPart == nil then
+		return fallbackPosition, fallbackFacing
+	end
+
+	local lookVector = rootPart.CFrame.LookVector
+	if lookVector.Magnitude <= 1e-4 then
+		lookVector = fallbackFacing
+	end
+
+	return rootPart.Position, lookVector.Unit
 end
 
 local function sanitizeMobDef(rawMobDef: {[string]: any}, defaults: {[string]: any}): {[string]: any}
@@ -124,59 +179,353 @@ local function sanitizeMobDef(rawMobDef: {[string]: any}, defaults: {[string]: a
 	}
 end
 
+local function buildFallbackSpawnPointsFromBounds(
+	bounds: {[string]: any},
+	maxCount: number,
+	insetStuds: number,
+	heightOffset: number
+): {Vector3}
+	if typeof(bounds) ~= "table" or typeof(bounds.Min) ~= "Vector3" or typeof(bounds.Max) ~= "Vector3" then
+		return {}
+	end
+
+	local minBounds: Vector3 = bounds.Min
+	local maxBounds: Vector3 = bounds.Max
+	local spanX = math.max(0, maxBounds.X - minBounds.X)
+	local spanZ = math.max(0, maxBounds.Z - minBounds.Z)
+
+	local insetX = math.clamp(insetStuds, 0, spanX * 0.45)
+	local insetZ = math.clamp(insetStuds, 0, spanZ * 0.45)
+	local y = minBounds.Y + heightOffset
+	local centerX = (minBounds.X + maxBounds.X) * 0.5
+	local centerZ = (minBounds.Z + maxBounds.Z) * 0.5
+
+	local candidates = {
+		Vector3.new(centerX, y, centerZ),
+		Vector3.new(minBounds.X + insetX, y, minBounds.Z + insetZ),
+		Vector3.new(maxBounds.X - insetX, y, maxBounds.Z - insetZ),
+		Vector3.new(minBounds.X + insetX, y, maxBounds.Z - insetZ),
+		Vector3.new(maxBounds.X - insetX, y, minBounds.Z + insetZ),
+	}
+
+	local output: {Vector3} = {}
+	local seen: {[string]: true} = {}
+	for _, point in ipairs(candidates) do
+		local key = string.format("%.3f|%.3f|%.3f", point.X, point.Y, point.Z)
+		if seen[key] == nil then
+			seen[key] = true
+			table.insert(output, point)
+			if #output >= maxCount then
+				break
+			end
+		end
+	end
+
+	return output
+end
+
 function MobService:KnitInit()
 	self._config = Config
-	self._zoneDefs = ZoneDefs
 	self._mobDefs = MobDefs
+	self._zoneDefs = ZoneDefs
 	self._zoneService = nil :: ZoneServiceLike?
 	self._rewardService = nil :: RewardServiceLike?
-	self._serviceJanitor = Janitor.new()
+	self._gameplayManager = nil :: GameplayManagerServiceLike?
+	self._gameplaySystemName = "MobServiceRuntime"
+
 	self._mobContainer = nil :: Instance?
 	self._mobById = {} :: {[string]: MobRuntimeRecord}
-	self._spawnSlotsByMobId = {} :: {[string]: SpawnSlot}
+	self._mobIdsByZone = {} :: {[string]: {[string]: true}}
 	self._attackerMobIdsByUserId = {} :: {[number]: {[string]: true}}
-	self._accumulator = 0
+
+	self._simulationAccumulator = 0
+	self._replicationAccumulator = 0
+	self._positionThresholdSquared = Config.PositionChangeThresholdStuds * Config.PositionChangeThresholdStuds
+	self._warnedNoSpawnPointsByZone = {} :: {[string]: true}
+
+	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
+	self._replicationBuffer = ReplicationBuffer.new({
+		MaxAddsPerFlushPerPlayer = Config.MaxAddsPerFlushPerPlayer,
+		MaxUpdatesPerFlushPerPlayer = Config.MaxUpdatesPerFlushPerPlayer,
+		MaxRemovesPerFlushPerPlayer = Config.MaxRemovesPerFlushPerPlayer,
+		MaxTotalMobEntriesPerFlush = Config.MaxTotalMobEntriesPerFlush,
+	})
+
+	print("Mob Service Init")
 end
 
 function MobService:KnitStart()
-	local okZone, zoneService = pcall(function()
-		return Knit.GetService("ZoneService")
-	end)
-	if okZone then
-		self._zoneService = zoneService :: ZoneServiceLike
-	end
-
-	local okReward, rewardService = pcall(function()
-		return Knit.GetService("RewardService")
-	end)
-	if okReward then
-		self._rewardService = rewardService :: RewardServiceLike
-	else
-		warn(string.format("[MobService] RewardService unavailable at start: %s", tostring(rewardService)))
-	end
-
+	self._zoneService = Knit.GetService("ZoneService") :: ZoneServiceLike
+	self._rewardService = Knit.GetService("RewardService") :: RewardServiceLike
+	self._gameplayManager = Knit.GetService("GameplayManagerService") :: GameplayManagerServiceLike
 	self._mobContainer = ModelResolver.ResolveSpawnContainer(Workspace, self._config.SpawnRootPath)
 
-	self._serviceJanitor:Add(Players.PlayerRemoving:Connect(function(player: Player)
-		self:_clearPlayerAsAttacker(player)
-	end), "Disconnect", "PlayerRemovingConnection")
+	local okInit, initErr = pcall(function()
+		self:_initializeSpawnSlots()
+	end)
+	if not okInit then
+		warn(string.format("[MobService] Initialize spawn slots failed: %s", tostring(initErr)))
+	end
 
-	self._serviceJanitor:Add(RunService.Heartbeat:Connect(function(dt: number)
-		self:_onHeartbeat(dt)
-	end), "Disconnect", "HeartbeatConnection")
+	local gameplayManager = self._gameplayManager
+	if gameplayManager == nil then
+		error("[MobService] GameplayManagerService is required")
+	end
 
-	self:_initializeSpawnSlots()
+	gameplayManager:RegisterSystem(self._gameplaySystemName, {
+		OnTick = function(_: any, now: number, dt: number)
+			self:StepMobSimulation(now, dt)
+			self:FlushReplicationBuffers(now, dt)
+		end,
+		OnPlayerAdded = function(_: any, player: Player)
+			self:_onPlayerAdded(player)
+		end,
+		OnPlayerRemoving = function(_: any, player: Player)
+			self:_onPlayerRemoving(player)
+		end,
+		})
 end
 
-function MobService:_emitMobDelta(payload: {[string]: any})
-	self.Client.MobStateDelta:FireAll(payload)
+function MobService:_onPlayerAdded(player: Player)
+	self._replicationBuffer:ResetPlayer(player.UserId)
+end
+
+function MobService:_onPlayerRemoving(player: Player)
+	self:_clearPlayerAsAttacker(player)
+	self._replicationBuffer:ResetPlayer(player.UserId)
+end
+
+function MobService:_registerMobInZone(zoneId: string, mobId: string)
+	local zoneSet = self._mobIdsByZone[zoneId]
+	if zoneSet == nil then
+		zoneSet = {}
+		self._mobIdsByZone[zoneId] = zoneSet
+	end
+	zoneSet[mobId] = true
+end
+
+function MobService:_unregisterMobFromZone(zoneId: string, mobId: string)
+	local zoneSet = self._mobIdsByZone[zoneId]
+	if zoneSet == nil then
+		return
+	end
+	zoneSet[mobId] = nil
+	if next(zoneSet) == nil then
+		self._mobIdsByZone[zoneId] = nil
+	end
+end
+
+function MobService:_newClientState(mobId: string, zoneId: string, spawnIndex: number, spawnOrigin: Vector3): MobClientState
+	return {
+		MobId = mobId,
+		MobDefId = "",
+		ZoneId = zoneId,
+		SpawnIndex = spawnIndex,
+		Position = spawnOrigin,
+		Facing = Vector3.new(0, 0, -1),
+		HP = 0,
+		MaxHP = 0,
+		Alive = false,
+		Attackable = false,
+		BrainState = "Idle",
+		TargetUserId = nil,
+		Revision = 0,
+	}
+end
+
+function MobService:_bumpRevision(record: MobRuntimeRecord)
+	record.ClientState.Revision += 1
+end
+
+function MobService:_isFacingDifferent(currentFacing: Vector3, nextFacing: Vector3): boolean
+	return currentFacing:Dot(nextFacing) < self._config.FacingDotThreshold
+end
+
+function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: number)
+	local clientState = record.ClientState
+	local changed = false
+
+	local nextPosition, nextFacing = resolveModelPositionAndFacing(record.Model, clientState.Position, clientState.Facing)
+	if (nextPosition - clientState.Position).Magnitude^2 > self._positionThresholdSquared then
+		clientState.Position = nextPosition
+		changed = true
+	end
+	if self:_isFacingDifferent(clientState.Facing, nextFacing) then
+		clientState.Facing = nextFacing
+		changed = true
+	end
+
+	local brain = record.Brain
+	if brain ~= nil then
+		local brainState = brain:GetState()
+		if brainState ~= clientState.BrainState then
+			clientState.BrainState = brainState
+			changed = true
+		end
+
+		local targetPlayer = brain:GetCurrentTarget()
+		local targetUserId = if targetPlayer ~= nil then targetPlayer.UserId else nil
+		if targetUserId ~= clientState.TargetUserId then
+			clientState.TargetUserId = targetUserId
+			changed = true
+		end
+	end
+
+	if changed then
+		self:_bumpRevision(record)
+	end
+
+	record.ServerState.LastStateSyncAt = now
+end
+
+function MobService:_setHealth(record: MobRuntimeRecord, nextHealth: number): boolean
+	local clientState = record.ClientState
+	local clamped = math.clamp(nextHealth, 0, clientState.MaxHP)
+	if clamped == clientState.HP then
+		return false
+	end
+
+	clientState.HP = clamped
+	record.ServerState.LastDamagedAt = os.clock()
+	self:_bumpRevision(record)
+	return true
+end
+
+function MobService:_applySpawnState(record: MobRuntimeRecord, mobDefId: string, mobDef: {[string]: any})
+	local clientState = record.ClientState
+	local changed = false
+
+	if clientState.MobDefId ~= mobDefId then
+		clientState.MobDefId = mobDefId
+		changed = true
+	end
+
+	if clientState.MaxHP ~= mobDef.BaseHP then
+		clientState.MaxHP = mobDef.BaseHP
+		changed = true
+	end
+	if clientState.HP ~= mobDef.BaseHP then
+		clientState.HP = mobDef.BaseHP
+		changed = true
+	end
+	if clientState.Alive ~= true then
+		clientState.Alive = true
+		changed = true
+	end
+	if clientState.Attackable ~= true then
+		clientState.Attackable = true
+		changed = true
+	end
+	if clientState.BrainState ~= "Idle" then
+		clientState.BrainState = "Idle"
+		changed = true
+	end
+	if clientState.TargetUserId ~= nil then
+		clientState.TargetUserId = nil
+		changed = true
+	end
+
+	local nextPosition, nextFacing = resolveModelPositionAndFacing(record.Model, clientState.Position, clientState.Facing)
+	if (nextPosition - clientState.Position).Magnitude^2 > self._positionThresholdSquared then
+		clientState.Position = nextPosition
+		changed = true
+	end
+	if self:_isFacingDifferent(clientState.Facing, nextFacing) then
+		clientState.Facing = nextFacing
+		changed = true
+	end
+
+	if changed then
+		self:_bumpRevision(record)
+	end
+end
+
+function MobService:_applyDeathState(record: MobRuntimeRecord)
+	local clientState = record.ClientState
+	local changed = false
+
+	if clientState.HP ~= 0 then
+		clientState.HP = 0
+		changed = true
+	end
+	if clientState.Alive ~= false then
+		clientState.Alive = false
+		changed = true
+	end
+	if clientState.Attackable ~= false then
+		clientState.Attackable = false
+		changed = true
+	end
+	if clientState.BrainState ~= "Dead" then
+		clientState.BrainState = "Dead"
+		changed = true
+	end
+	if clientState.TargetUserId ~= nil then
+		clientState.TargetUserId = nil
+		changed = true
+	end
+
+	if changed then
+		self:_bumpRevision(record)
+	end
+end
+
+function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[string]: any}?): {Vector3}
+	local spawnOrigins = {}
+	if typeof(zoneDef) == "table" and typeof(zoneDef.SpawnPoints) == "table" then
+		for _, spawnOrigin in ipairs(zoneDef.SpawnPoints) do
+			if typeof(spawnOrigin) == "Vector3" then
+				table.insert(spawnOrigins, spawnOrigin)
+			end
+		end
+	end
+
+	if #spawnOrigins > 0 then
+		return spawnOrigins
+	end
+
+	local markerBounds: {[string]: any}? = nil
+	local getMarkerExactBounds = ZoneQueryHelper.GetMarkerExactBounds
+	if typeof(getMarkerExactBounds) == "function" then
+		markerBounds = getMarkerExactBounds(zoneId, true)
+	end
+	if markerBounds == nil then
+		local getZoneBounds = ZoneQueryHelper.GetZoneBounds
+		if typeof(getZoneBounds) == "function" then
+			markerBounds = getZoneBounds(zoneId, true)
+		end
+	end
+	if markerBounds == nil then
+		if self._warnedNoSpawnPointsByZone[zoneId] == nil then
+			self._warnedNoSpawnPointsByZone[zoneId] = true
+			warn(string.format("[MobService] No spawn origins for zone '%s' (no SpawnPoints and no zone bounds)", zoneId))
+		end
+		return spawnOrigins
+	end
+
+	local fallbackOrigins = buildFallbackSpawnPointsFromBounds(
+		markerBounds,
+		math.max(1, self._config.FallbackSpawnPointsPerZone),
+		math.max(0, self._config.FallbackSpawnInsetStuds),
+		self._config.FallbackSpawnHeightOffset
+	)
+	if #fallbackOrigins == 0 then
+		if self._warnedNoSpawnPointsByZone[zoneId] == nil then
+			self._warnedNoSpawnPointsByZone[zoneId] = true
+			warn(string.format("[MobService] Unable to build fallback spawn points for zone '%s'", zoneId))
+		end
+		return spawnOrigins
+	end
+
+	return fallbackOrigins
 end
 
 function MobService:_initializeSpawnSlots()
 	for zoneId, zoneDef in pairs(self._zoneDefs) do
-		if typeof(zoneDef) == "table" and typeof(zoneDef.SpawnPoints) == "table" then
-			for spawnIndex, spawnOrigin in ipairs(zoneDef.SpawnPoints) do
+		local okZone, zoneErr = pcall(function()
+			local spawnOrigins = self:_resolveSpawnOriginsForZone(zoneId, zoneDef)
+			for spawnIndex, spawnOrigin in ipairs(spawnOrigins) do
 				if typeof(spawnOrigin) == "Vector3" then
 					local mobId = string.format("%s:%d", zoneId, spawnIndex)
 					if self._mobById[mobId] == nil then
@@ -185,15 +534,17 @@ function MobService:_initializeSpawnSlots()
 							MobId = mobId,
 							ZoneId = zoneId,
 							SpawnIndex = spawnIndex,
-							SpawnOrigin = spawnOrigin,
 							MobDefId = "",
 							MobDef = {},
 							Model = nil,
 							Brain = nil,
-							Alive = false,
-							Attackable = false,
-							Health = 0,
-							MaxHealth = 0,
+							ClientState = self:_newClientState(mobId, zoneId, spawnIndex, spawnOrigin),
+							ServerState = {
+								SpawnOrigin = spawnOrigin,
+								LastStateSyncAt = 0,
+								LastDamagedAt = 0,
+								RespawnAt = nil,
+							},
 							Attackers = {},
 							RespawnToken = nil,
 							ResolvingDeath = false,
@@ -211,16 +562,12 @@ function MobService:_initializeSpawnSlots()
 								record.Model = nil
 							end
 							self:_clearAllAttackers(record)
+							self:_unregisterMobFromZone(record.ZoneId, record.MobId)
 							self._mobById[mobId] = nil
-							self._spawnSlotsByMobId[mobId] = nil
 						end)
 
 						self._mobById[mobId] = record
-						self._spawnSlotsByMobId[mobId] = {
-							ZoneId = zoneId,
-							SpawnIndex = spawnIndex,
-							SpawnOrigin = spawnOrigin,
-						}
+						self:_registerMobInZone(zoneId, mobId)
 
 						local spawned, spawnReason = self:_spawnMob(record)
 						if not spawned then
@@ -230,6 +577,9 @@ function MobService:_initializeSpawnSlots()
 					end
 				end
 			end
+		end)
+		if not okZone then
+			warn(string.format("[MobService] Failed to initialize zone '%s': %s", tostring(zoneId), tostring(zoneErr)))
 		end
 	end
 end
@@ -316,11 +666,15 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 		return false, "MissingMobTemplate"
 	end
 
-	local model, rootPart = ModelResolver.CloneMobModel(template, self._mobContainer, record.MobId, record.ZoneId, mobDefId, record.SpawnOrigin)
-	if model == nil or rootPart == nil then
-		if model ~= nil then
-			model:Destroy()
-		end
+	local model, _ = ModelResolver.CloneMobModel(
+		template,
+		self._mobContainer,
+		record.MobId,
+		record.ZoneId,
+		mobDefId,
+		record.ServerState.SpawnOrigin
+	)
+	if model == nil then
 		return false, "InvalidMobModel"
 	end
 
@@ -334,16 +688,13 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 	record.MobDefId = mobDefId
 	record.MobDef = mobDef
 	record.Model = model
-	record.MaxHealth = mobDef.BaseHP
-	record.Health = mobDef.BaseHP
-	record.Alive = true
-	record.Attackable = true
 	record.ResolvingDeath = false
+	record.ServerState.RespawnAt = nil
 
 	record.Brain = MobBrain.new({
 		MobId = record.MobId,
 		Model = model,
-		SpawnOrigin = record.SpawnOrigin,
+		SpawnOrigin = record.ServerState.SpawnOrigin,
 		AllowedZoneId = record.ZoneId,
 		AttackRange = mobDef.AttackRange,
 		AttackCooldown = mobDef.AttackCooldown,
@@ -354,13 +705,8 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 		AttackExecutor = function(_: any, player: Player, now: number): boolean
 			return self:_executeMobAttack(record, player, now)
 		end,
-		OnStateChanged = function(_: any, previousState: string, newState: string)
-			self:_emitMobDelta({
-				Type = "StateChanged",
-				MobId = record.MobId,
-				PreviousState = previousState,
-				State = newState,
-			})
+		OnStateChanged = function(_: any)
+			self:_syncStateFromModelAndBrain(record, os.clock())
 		end,
 		OnDeath = function(_: any, now: number)
 			self:_resolveMobDeath(record, nil, "MobBrainDeath", now)
@@ -371,18 +717,8 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 		},
 	})
 
-	self:_emitMobDelta({
-		Type = "Spawned",
-		MobId = record.MobId,
-		ZoneId = record.ZoneId,
-		MobDefId = record.MobDefId,
-		Model = record.Model,
-		Health = record.Health,
-		MaxHealth = record.MaxHealth,
-		Attackable = true,
-		Alive = true,
-	})
-
+	self:_applySpawnState(record, mobDefId, mobDef)
+	self:_syncStateFromModelAndBrain(record, os.clock())
 	return true, nil
 end
 
@@ -402,12 +738,7 @@ function MobService:_scheduleRespawn(record: MobRuntimeRecord, delaySeconds: num
 		Cancelled = false,
 	}
 	record.RespawnToken = token
-
-	self:_emitMobDelta({
-		Type = "RespawnScheduled",
-		MobId = record.MobId,
-		RespawnAt = os.clock() + resolvedDelay,
-	})
+	record.ServerState.RespawnAt = os.clock() + resolvedDelay
 
 	task.delay(resolvedDelay, function()
 		if token.Cancelled then
@@ -452,15 +783,13 @@ function MobService:_buildContributionSnapshot(record: MobRuntimeRecord, killedB
 	}
 end
 
-function MobService:_resolveMobDeath(record: MobRuntimeRecord, killerPlayer: Player?, reason: string, now: number?)
-	if record.Alive == false or record.ResolvingDeath then
+function MobService:_resolveMobDeath(record: MobRuntimeRecord, killerPlayer: Player?, _reason: string, now: number?)
+	if record.ClientState.Alive == false or record.ResolvingDeath then
 		return
 	end
 
 	record.ResolvingDeath = true
-	record.Alive = false
-	record.Attackable = false
-	record.Health = 0
+	self:_applyDeathState(record)
 
 	local timestamp = if ValidationUtil.isFiniteNumber(now) then now else os.clock()
 
@@ -480,15 +809,6 @@ function MobService:_resolveMobDeath(record: MobRuntimeRecord, killerPlayer: Pla
 			warn(string.format("[MobService] Reward grant failed for %s: %s", record.MobId, tostring(err)))
 		end
 	end
-
-	self:_emitMobDelta({
-		Type = "Died",
-		MobId = record.MobId,
-		Reason = reason,
-		KilledByUserId = killerUserId,
-		Model = record.Model,
-		Alive = false,
-	})
 
 	self:_clearAllAttackers(record)
 
@@ -545,7 +865,7 @@ function MobService:_clearPlayerAsAttacker(player: Player)
 end
 
 function MobService:_isMobTargetValid(record: MobRuntimeRecord, player: Player): boolean
-	if record.Alive == false or record.Attackable == false then
+	if record.ClientState.Alive == false or record.ClientState.Attackable == false then
 		return false
 	end
 	if not ValidationUtil.isPlayer(player) then
@@ -559,7 +879,7 @@ function MobService:_isMobTargetValid(record: MobRuntimeRecord, player: Player):
 	if zoneService ~= nil then
 		local mobProxy = {
 			AllowedZoneId = record.ZoneId,
-			Position = resolveModelPosition(record.Model, record.SpawnOrigin),
+			Position = record.ClientState.Position,
 		}
 		local valid = zoneService:IsMobTargetValidForZone(mobProxy, player)
 		if not valid then
@@ -586,33 +906,121 @@ function MobService:_executeMobAttack(record: MobRuntimeRecord, player: Player, 
 	end
 
 	humanoid:TakeDamage(damage)
-
-	if humanoid.Health <= 0 then
-		self:_emitMobDelta({
-			Type = "Victory",
-			MobId = record.MobId,
-			TargetUserId = player.UserId,
-		})
-	end
-
 	return true
 end
 
-function MobService:_onHeartbeat(dt: number)
-	self._accumulator += dt
-	if self._accumulator < self._config.StepIntervalSeconds then
+function MobService:StepMobSimulation(now: number, dt: number)
+	self._simulationAccumulator += math.max(dt, 0)
+	local stepInterval = self._config.SimulationStepIntervalSeconds
+	local steps = 0
+
+	while self._simulationAccumulator >= stepInterval and steps < self._config.MaxSimulationStepsPerTick do
+		self._simulationAccumulator -= stepInterval
+		local stepNow = now - self._simulationAccumulator
+
+		for _, record in pairs(self._mobById) do
+			if record.ClientState.Alive and record.Brain ~= nil then
+				local ok, err = pcall(function()
+					record.Brain:Step(stepNow)
+				end)
+				if not ok then
+					warn(string.format("[MobService] Brain step failed for %s: %s", record.MobId, tostring(err)))
+				end
+
+				self:_syncStateFromModelAndBrain(record, stepNow)
+			end
+		end
+
+		steps += 1
+	end
+
+	if self._simulationAccumulator > stepInterval then
+		self._simulationAccumulator = stepInterval
+	end
+end
+
+function MobService:_serializeMobAddState(mobId: string): {[string]: any}?
+	local record = self._mobById[mobId]
+	if record == nil then
+		return nil
+	end
+	return StateSerializer.SerializeAdd(record.ClientState)
+end
+
+function MobService:_serializeMobUpdateState(mobId: string): {[string]: any}?
+	local record = self._mobById[mobId]
+	if record == nil then
+		return nil
+	end
+	return StateSerializer.SerializeUpdate(record.ClientState)
+end
+
+function MobService:_getRelevantMobIdsForPlayer(player: Player): {string}
+	local zoneId: string? = nil
+	local zoneService = self._zoneService
+	if zoneService ~= nil then
+		local resolvedZoneId = zoneService:GetPlayerZone(player)
+		if ValidationUtil.isNonEmptyString(resolvedZoneId) then
+			zoneId = resolvedZoneId
+		end
+	end
+
+	if zoneId == nil then
+		return {}
+	end
+
+	local zoneSet = self._mobIdsByZone[zoneId]
+	if zoneSet == nil then
+		return {}
+	end
+
+	local distanceLimit = self._config.ReplicationDistanceLimitStuds
+	local playerPosition = if distanceLimit > 0 then resolveCharacterRootPosition(player) else nil
+	local limitSquared = distanceLimit * distanceLimit
+
+	local mobIds = {}
+	for mobId in pairs(zoneSet) do
+		local record = self._mobById[mobId]
+		if record ~= nil then
+			if playerPosition ~= nil and distanceLimit > 0 then
+				if (record.ClientState.Position - playerPosition).Magnitude^2 <= limitSquared then
+					table.insert(mobIds, mobId)
+				end
+			else
+				table.insert(mobIds, mobId)
+			end
+		end
+	end
+
+	table.sort(mobIds)
+	return mobIds
+end
+
+function MobService:FlushReplicationBuffers(now: number, dt: number)
+	self._replicationAccumulator += math.max(dt, 0)
+	local flushInterval = self._config.ReplicationFlushIntervalSeconds
+	if self._replicationAccumulator < flushInterval then
 		return
 	end
 
-	local now = os.clock()
-	self._accumulator = 0
-	for _, record in pairs(self._mobById) do
-		if record.Alive and record.Brain ~= nil then
-			local ok, err = pcall(function()
-				record.Brain:Step(now)
-			end)
-			if not ok then
-				warn(string.format("[MobService] Brain step failed for %s: %s", record.MobId, tostring(err)))
+	while self._replicationAccumulator >= flushInterval do
+		self._replicationAccumulator -= flushInterval
+
+		for _, player in ipairs(Players:GetPlayers()) do
+			local relevantMobIds = self:_getRelevantMobIdsForPlayer(player)
+			local packet = self._replicationBuffer:BuildPacketForPlayer(
+				player.UserId,
+				now,
+				relevantMobIds,
+				function(mobId: string)
+					return self:_serializeMobAddState(mobId)
+				end,
+				function(mobId: string)
+					return self:_serializeMobUpdateState(mobId)
+				end
+			)
+			if packet ~= nil then
+				self.Client.MobStateDelta:Fire(player, packet)
 			end
 		end
 	end
@@ -630,10 +1038,10 @@ function MobService:IsMobAttackable(mobId: string): (boolean, string?)
 	if record == nil then
 		return false, "MobNotFound"
 	end
-	if record.Alive == false then
+	if record.ClientState.Alive == false then
 		return false, "MobDead"
 	end
-	if record.Attackable == false then
+	if record.ClientState.Attackable == false then
 		return false, "MobNotAttackable"
 	end
 	return true, nil
@@ -648,7 +1056,7 @@ function MobService:RegisterAttacker(mobId: string, player: Player): (boolean, s
 	if record == nil then
 		return false, "MobNotFound"
 	end
-	if not record.Alive or not record.Attackable then
+	if not record.ClientState.Alive or not record.ClientState.Attackable then
 		return false, "MobNotAttackable"
 	end
 	if not self:_isMobTargetValid(record, player) then
@@ -666,6 +1074,7 @@ function MobService:RegisterAttacker(mobId: string, player: Player): (boolean, s
 
 	if record.Brain ~= nil then
 		record.Brain:AddAttacker(player)
+		self:_syncStateFromModelAndBrain(record, os.clock())
 	end
 
 	return true, nil
@@ -692,6 +1101,7 @@ function MobService:UnregisterAttacker(mobId: string, player: Player): (boolean,
 
 	if record.Brain ~= nil then
 		record.Brain:RemoveAttacker(player)
+		self:_syncStateFromModelAndBrain(record, os.clock())
 	end
 
 	return true, nil
@@ -717,7 +1127,7 @@ function MobService:ApplyDamage(mobId: string, player: Player, amount: number, _
 	if record == nil then
 		return false, "MobNotFound"
 	end
-	if not record.Alive or not record.Attackable then
+	if not record.ClientState.Alive or not record.ClientState.Attackable then
 		return false, "MobNotAttackable"
 	end
 	if not self:_isMobTargetValid(record, player) then
@@ -733,18 +1143,9 @@ function MobService:ApplyDamage(mobId: string, player: Player, amount: number, _
 		record.Brain:AddDamage(player.UserId, numericAmount, os.clock())
 	end
 
-	record.Health = math.max(0, record.Health - numericAmount)
+	self:_setHealth(record, record.ClientState.HP - numericAmount)
 
-	self:_emitMobDelta({
-		Type = "HealthChanged",
-		MobId = record.MobId,
-		Health = record.Health,
-		MaxHealth = record.MaxHealth,
-		LastHitByUserId = player.UserId,
-		Damage = numericAmount,
-	})
-
-	if record.Health <= 0 then
+	if record.ClientState.HP <= 0 then
 		self:_resolveMobDeath(record, player, "DamageDepleted", os.clock())
 	end
 
@@ -752,6 +1153,13 @@ function MobService:ApplyDamage(mobId: string, player: Player, amount: number, _
 end
 
 function MobService:Destroy()
+	local gameplayManager = self._gameplayManager
+	if gameplayManager ~= nil then
+		pcall(function()
+			gameplayManager:UnregisterSystem(self._gameplaySystemName)
+		end)
+	end
+
 	if self._serviceJanitor ~= nil then
 		self._serviceJanitor:Cleanup()
 	end
@@ -760,8 +1168,12 @@ function MobService:Destroy()
 		record.Janitor:Cleanup()
 	end
 
+	if self._replicationBuffer ~= nil then
+		self._replicationBuffer:Destroy()
+	end
+
 	table.clear(self._mobById)
-	table.clear(self._spawnSlotsByMobId)
+	table.clear(self._mobIdsByZone)
 	table.clear(self._attackerMobIdsByUserId)
 end
 

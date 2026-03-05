@@ -124,26 +124,49 @@ function ModelResolver.CloneMobModel(template: Model, parent: Instance, mobId: s
 		return nil, nil
 	end
 
-	local clone = template:Clone()
-	clone.Name = mobId
+	local proxy = Instance.new("Model")
+	proxy.Name = mobId
 
-	local rootPart = getModelRoot(clone)
-	if rootPart ~= nil and clone.PrimaryPart == nil then
-		pcall(function()
-			clone.PrimaryPart = rootPart
-		end)
-	end
+	local templateRoot = getModelRoot(template)
+	local rootSize = if templateRoot ~= nil then templateRoot.Size else Vector3.new(2.5, 3, 2.5)
+	rootSize = Vector3.new(
+		math.clamp(rootSize.X, 1.5, 6),
+		math.clamp(rootSize.Y, 2, 8),
+		math.clamp(rootSize.Z, 1.5, 6)
+	)
 
-	clone:SetAttribute("MobId", mobId)
-	clone:SetAttribute("MobDefId", mobDefId)
-	clone:SetAttribute("ZoneId", zoneId)
-	clone:SetAttribute("AllowedZoneId", zoneId)
+	local rootPart = Instance.new("Part")
+	rootPart.Name = "HumanoidRootPart"
+	rootPart.Size = rootSize
+	rootPart.Transparency = 1
+	rootPart.CanCollide = false
+	rootPart.CanTouch = false
+	rootPart.CanQuery = false
+	rootPart.Anchored = false
+	rootPart.Parent = proxy
 
-	clone.Parent = parent
-	clone:PivotTo(CFrame.new(spawnPosition))
+	local humanoid = Instance.new("Humanoid")
+	humanoid.Name = "Humanoid"
+	humanoid.BreakJointsOnDeath = false
+	humanoid.AutoRotate = true
+	humanoid.HipHeight = math.max(0, rootSize.Y * 0.5 - 1)
+	humanoid.Parent = proxy
 
-	local resolvedRoot = getModelRoot(clone)
-	return clone, resolvedRoot
+	proxy.PrimaryPart = rootPart
+
+	proxy:SetAttribute("MobId", mobId)
+	proxy:SetAttribute("MobDefId", mobDefId)
+	proxy:SetAttribute("ZoneId", zoneId)
+	proxy:SetAttribute("AllowedZoneId", zoneId)
+	proxy:SetAttribute("ServerProxy", true)
+
+	proxy.Parent = parent
+	proxy:PivotTo(CFrame.new(spawnPosition))
+	pcall(function()
+		rootPart:SetNetworkOwner(nil)
+	end)
+
+	return proxy, rootPart
 end
 
 return ModelResolver

@@ -3,7 +3,7 @@
 --[[
 	GameplayManagerService
 	
-	A server-side Knit service that manages gameplay systems through a fixed-rate heartbeat loop (1 Hz).
+	A server-side Knit service that manages gameplay systems through a fixed-rate heartbeat loop.
 	Handles system lifecycle, player events, and scheduled callbacks to avoid per-frame scanning.
 	
 	System Lifecycle
@@ -49,7 +49,7 @@
 	end
 	
 	function MySystem:OnTick(now, dt)
-		-- Called every 1 second (1 Hz)
+		-- Called at the configured heartbeat rate.
 	end
 	
 	-- Register with manager
@@ -325,7 +325,10 @@ function GameplayManagerService:_Tick(now: number, dt: number)
 	for _, system in pairs(self._systems) do
 		local onTick = system.OnTick
 		if onTick then
-			onTick(system, now, dt)
+			local ok, err = pcall(onTick, system, now, dt)
+			if not ok then
+				warn(string.format("GameplayManagerService tick error: %s", tostring(err)))
+			end
 		end
 	end
 end
@@ -354,7 +357,10 @@ function GameplayManagerService:_HandlePlayerAdded(player: Player)
 	for _, system in pairs(self._systems) do
 		local onPlayerAdded = system.OnPlayerAdded
 		if onPlayerAdded then
-			onPlayerAdded(system, player)
+			local ok, err = pcall(onPlayerAdded, system, player)
+			if not ok then
+				warn(string.format("GameplayManagerService player-added error: %s", tostring(err)))
+			end
 		end
 	end
 end
@@ -363,7 +369,10 @@ function GameplayManagerService:_HandlePlayerRemoving(player: Player)
 	for _, system in pairs(self._systems) do
 		local onPlayerRemoving = system.OnPlayerRemoving
 		if onPlayerRemoving then
-			onPlayerRemoving(system, player)
+			local ok, err = pcall(onPlayerRemoving, system, player)
+			if not ok then
+				warn(string.format("GameplayManagerService player-removing error: %s", tostring(err)))
+			end
 		end
 	end
 end

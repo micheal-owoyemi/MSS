@@ -1,7 +1,16 @@
 --!strict
 
 export type Config = {
-	StepIntervalSeconds: number,
+	SimulationStepIntervalSeconds: number,
+	ReplicationFlushIntervalSeconds: number,
+	MaxSimulationStepsPerTick: number,
+	PositionChangeThresholdStuds: number,
+	FacingDotThreshold: number,
+	ReplicationDistanceLimitStuds: number,
+	MaxAddsPerFlushPerPlayer: number,
+	MaxUpdatesPerFlushPerPlayer: number,
+	MaxRemovesPerFlushPerPlayer: number,
+	MaxTotalMobEntriesPerFlush: number,
 	MaxDamagePerHit: number,
 	MinDamagePerHit: number,
 	DefaultRespawnDelaySeconds: number,
@@ -13,10 +22,22 @@ export type Config = {
 	AggroLockDurationDefault: number,
 	ContributionEligibilityWindowSeconds: number,
 	ContributionMinDamage: number,
+	FallbackSpawnPointsPerZone: number,
+	FallbackSpawnInsetStuds: number,
+	FallbackSpawnHeightOffset: number,
 }
 
 local Config: Config = {
-	StepIntervalSeconds = 0.2,
+	SimulationStepIntervalSeconds = 0.1,
+	ReplicationFlushIntervalSeconds = 0.2,
+	MaxSimulationStepsPerTick = 3,
+	PositionChangeThresholdStuds = 0.2,
+	FacingDotThreshold = 0.999,
+	ReplicationDistanceLimitStuds = 280,
+	MaxAddsPerFlushPerPlayer = 20,
+	MaxUpdatesPerFlushPerPlayer = 30,
+	MaxRemovesPerFlushPerPlayer = 30,
+	MaxTotalMobEntriesPerFlush = 50,
 	MaxDamagePerHit = 5_000_000,
 	MinDamagePerHit = 0.01,
 	DefaultRespawnDelaySeconds = 10,
@@ -28,6 +49,9 @@ local Config: Config = {
 	AggroLockDurationDefault = 4,
 	ContributionEligibilityWindowSeconds = 30,
 	ContributionMinDamage = 0,
+	FallbackSpawnPointsPerZone = 3,
+	FallbackSpawnInsetStuds = 8,
+	FallbackSpawnHeightOffset = 3,
 }
 
 return table.freeze(Config)

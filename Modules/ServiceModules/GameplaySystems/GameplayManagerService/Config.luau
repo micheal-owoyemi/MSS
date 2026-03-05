@@ -8,7 +8,7 @@
 ]]
 
 local Config = {
-	HeartbeatRateHz = 1,
+	HeartbeatRateHz = 10,
 }
 
 return table.freeze(Config)
