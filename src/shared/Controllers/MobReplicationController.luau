@@ -10,6 +10,7 @@ local Config = require(script.Parent.MobReplicationControllerConfig)
 
 type Packet = {
 	seq: number?,
+	t: number?,
 	a: {{[string]: any}}?,
 	u: {{[string]: any}}?,
 	rm: {string}?,
@@ -20,6 +21,8 @@ type MobVisualRecord = {
 	Revision: number,
 	CurrentXZ: Vector2,
 	TargetXZ: Vector2,
+	VelocityXZ: Vector2,
+	LastTargetSampleAt: number,
 	GroundY: number,
 }
 
@@ -128,6 +131,8 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 		Revision = tonumber(addState.r) or 0,
 		CurrentXZ = initialXZ,
 		TargetXZ = initialXZ,
+		VelocityXZ = Vector2.zero,
+		LastTargetSampleAt = os.clock(),
 		GroundY = groundY,
 	}
 	self._mobVisualById[mobId] = record
@@ -144,6 +149,16 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 	record.Revision = revision
 	local nextXZ = parseXZ(state.xz)
 	if nextXZ ~= nil then
+		local now = os.clock()
+		local sampleDt = math.max(Config.MinVelocitySampleSeconds, now - record.LastTargetSampleAt)
+		local rawVelocity = (nextXZ - record.TargetXZ) / sampleDt
+		local rawSpeed = rawVelocity.Magnitude
+		if rawSpeed > Config.MaxPredictedSpeedStudsPerSecond and rawSpeed > 1e-4 then
+			rawVelocity = rawVelocity.Unit * Config.MaxPredictedSpeedStudsPerSecond
+		end
+		local velocityAlpha = 1 - math.exp(-Config.VelocitySmoothingK * sampleDt)
+		record.VelocityXZ = record.VelocityXZ:Lerp(rawVelocity, math.clamp(velocityAlpha, 0, 1))
+		record.LastTargetSampleAt = now
 		record.TargetXZ = nextXZ
 	end
 
@@ -170,11 +185,19 @@ function MobReplicationController:_stepSmoothing(dt: number)
 	local alpha = 1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0))
 	alpha = math.clamp(alpha, Config.MinSmoothingAlpha, Config.MaxSmoothingAlpha)
 	for _, record in pairs(self._mobVisualById) do
-		local delta = record.TargetXZ - record.CurrentXZ
+		local predictedTarget = record.TargetXZ + (record.VelocityXZ * Config.PredictionLeadSeconds)
+		local delta = predictedTarget - record.CurrentXZ
 		if delta.Magnitude >= Config.SnapDistanceStuds then
-			record.CurrentXZ = record.TargetXZ
+			record.CurrentXZ = predictedTarget
 		else
-			record.CurrentXZ = record.CurrentXZ:Lerp(record.TargetXZ, alpha)
+			local desired = record.CurrentXZ:Lerp(predictedTarget, alpha)
+			local step = desired - record.CurrentXZ
+			local maxStep = Config.MaxCatchUpSpeedStudsPerSecond * math.max(dt, 0)
+			if step.Magnitude > maxStep and step.Magnitude > 1e-4 then
+				record.CurrentXZ += step.Unit * maxStep
+			else
+				record.CurrentXZ = desired
+			end
 		end
 		applyRenderPosition(record)
 	end

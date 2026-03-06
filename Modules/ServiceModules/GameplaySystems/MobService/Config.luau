@@ -66,8 +66,8 @@ local Config: Config = {
 
 	-- OFTEN TWEAKED (spawn density / roam collision behavior)
 	DefaultMaxMobsPerZone = 3, -- Fallback max mobs when zone data does not provide MaxMobs.
-	SpawnSampleAttemptsPerMob = 30, -- Spawn sampling attempts per slot.
-	SpawnMinSeparationStuds = 7, -- Minimum spawn spacing between mobs.
+	SpawnSampleAttemptsPerMob = 120, -- Spawn sampling attempts per slot.
+	SpawnMinSeparationStuds = 25, -- Minimum spawn spacing between mobs.
 	SpawnZoneInsetStuds = 4, -- Inset from zone edge while sampling spawn points.
 	SpawnCollisionRadius = 2.5, -- Spawn collision check radius.
 	SpawnCollisionHeight = 6, -- Spawn collision check height.
