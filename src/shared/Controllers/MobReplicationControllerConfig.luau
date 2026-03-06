@@ -4,6 +4,9 @@ export type Config = {
 	SphereSize: number,
 	RenderHeightOffset: number,
 	DefaultGroundY: number,
+	RenderDebugSpheres: boolean,
+	ModelRenderRootPath: {string},
+	SphereRenderRootPath: {string},
 	PositionSmoothingK: number,
 	VelocitySmoothingK: number,
 	PredictionLeadSeconds: number,
@@ -16,6 +19,9 @@ export type Config = {
 }
 
 local Config: Config = {
+	-- MOST LIKELY TO TWEAK (render mode)
+	RenderDebugSpheres = false, -- false = render asset models, true = render debug spheres.
+
 	-- MOST LIKELY TO TWEAK (visual smoothness feel)
 	PositionSmoothingK = 14, -- Higher = tighter follow (less lag), lower = softer smoothing.
 	VelocitySmoothingK = 10, -- How quickly estimated server velocity reacts to incoming deltas.
@@ -29,6 +35,8 @@ local Config: Config = {
 	-- SOMETIMES TWEAK (debug visuals)
 	RenderHeightOffset = 2, -- How high the debug sphere sits above groundY.
 	SphereSize = 4, -- Debug sphere size.
+	ModelRenderRootPath = {"Game", "MobsClient"}, -- Workspace path for client-rendered mob models.
+	SphereRenderRootPath = {"Game", "MobDebugSpheres"}, -- Workspace path for debug spheres.
 
 	-- RARELY TWEAK (fallback safety)
 	DefaultGroundY = 3, -- Fallback Y if add packet does not include groundY.

@@ -16,18 +16,28 @@ type Packet = {
 	rm: {string}?,
 }
 
+type VisualKind = "Sphere" | "Model"
+
 type MobVisualRecord = {
-	Part: Part,
+	Kind: VisualKind,
+	Part: Part?,
+	Model: Model?,
 	Revision: number,
+	ZoneId: string,
+	MobDefId: string,
 	CurrentXZ: Vector2,
 	TargetXZ: Vector2,
 	VelocityXZ: Vector2,
 	LastTargetSampleAt: number,
+	FacingXZ: Vector2,
+	BaseFacingXZ: Vector2,
+	BaseRotation: CFrame,
+	BaseYawRadians: number,
 	GroundY: number,
 }
 
-local CLIENT_MOB_ROOT_PATH = {"Game", "MobDebugSpheres"}
 local DEFAULT_TARGET_XZ = Vector2.new(0, 0)
+local DEFAULT_FACING_XZ = Vector2.new(0, -1)
 
 local MobReplicationController = Knit.CreateController({
 	Name = "MobReplicationController",
@@ -54,6 +64,75 @@ local function parseXZ(rawXZ: any): Vector2?
 	return rawXZ
 end
 
+local function resolveModelNode(node: Instance?): Model?
+	if node == nil then
+		return nil
+	end
+	if node:IsA("Model") then
+		return node
+	end
+
+	local modelChild = node:FindFirstChild("Model")
+	if modelChild and modelChild:IsA("Model") then
+		return modelChild
+	end
+
+	return node:FindFirstChildWhichIsA("Model", true)
+end
+
+local function resolveTemplate(zoneId: string, mobDefId: string): Model?
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if assets == nil then
+		return nil
+	end
+	local mobsRoot = assets:FindFirstChild("Mobs")
+	if mobsRoot == nil then
+		return nil
+	end
+
+	local zoneFolder = mobsRoot:FindFirstChild(zoneId)
+	if zoneFolder ~= nil then
+		local zoneMobNode = zoneFolder:FindFirstChild(mobDefId)
+		local zoneMobModel = resolveModelNode(zoneMobNode)
+		if zoneMobModel ~= nil then
+			return zoneMobModel
+		end
+	end
+
+	local directNode = mobsRoot:FindFirstChild(mobDefId)
+	local directModel = resolveModelNode(directNode)
+	if directModel ~= nil then
+		return directModel
+	end
+
+	return nil
+end
+
+local function getModelRoot(model: Model): BasePart?
+	if model.PrimaryPart ~= nil then
+		return model.PrimaryPart
+	end
+
+	local humanoidRootPart = model:FindFirstChild("HumanoidRootPart")
+	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
+		return humanoidRootPart
+	end
+
+	return model:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function applyModelPhysicalProps(model: Model)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+			descendant.Massless = true
+		end
+	end
+end
+
 local function createSpherePart(mobId: string, parent: Instance): Part
 	local sphere = Instance.new("Part")
 	sphere.Name = mobId
@@ -69,12 +148,91 @@ local function createSpherePart(mobId: string, parent: Instance): Part
 	return sphere
 end
 
-local function applyRenderPosition(record: MobVisualRecord)
-	record.Part.Position = Vector3.new(
-		record.CurrentXZ.X,
-		record.GroundY + Config.RenderHeightOffset,
-		record.CurrentXZ.Y
-	)
+local function facingVector3FromXZ(value: Vector2): Vector3
+	local magnitude = value.Magnitude
+	if magnitude <= 1e-4 then
+		return Vector3.new(0, 0, -1)
+	end
+	local unit = value / magnitude
+	return Vector3.new(unit.X, 0, unit.Y)
+end
+
+local function safeFacingXZ(value: Vector2): Vector2
+	if value.Magnitude <= 1e-4 then
+		return DEFAULT_FACING_XZ
+	end
+	return value.Unit
+end
+
+local function yawFromFacingXZ(value: Vector2): number
+	local normalized = safeFacingXZ(value)
+	return math.atan2(normalized.X, normalized.Y)
+end
+
+local function resolveFaceReference(model: Model): BasePart?
+	local named = model:FindFirstChild("FaceReference", true)
+	if named and named:IsA("BasePart") then
+		return named
+	end
+	return nil
+end
+
+local function resolveBaseFacingFromModel(model: Model, baseRotation: CFrame): Vector2
+	local faceReference = resolveFaceReference(model)
+	if faceReference ~= nil then
+		local look = faceReference.CFrame.LookVector
+		local facing = Vector2.new(look.X, look.Z)
+		if facing.Magnitude > 1e-4 then
+			return facing.Unit
+		end
+	end
+
+	local fallbackLook = baseRotation.LookVector
+	return safeFacingXZ(Vector2.new(fallbackLook.X, fallbackLook.Z))
+end
+
+local function setCommonAttributes(target: Instance, state: {[string]: any})
+	if state.h ~= nil then
+		target:SetAttribute("HP", tonumber(state.h) or 0)
+	end
+	if state.mh ~= nil then
+		target:SetAttribute("MaxHP", tonumber(state.mh) or 0)
+	end
+	if state.st ~= nil then
+		target:SetAttribute("BrainState", tostring(state.st))
+	end
+	if state.z ~= nil then
+		target:SetAttribute("ZoneId", tostring(state.z))
+	end
+end
+
+function MobReplicationController:_warnMissingTemplateOnce(zoneId: string, mobDefId: string)
+	local warnKey = string.format("%s::%s", zoneId, mobDefId)
+	if self._warnedMissingTemplateByKey[warnKey] == true then
+		return
+	end
+	self._warnedMissingTemplateByKey[warnKey] = true
+	warn(string.format("[MobReplicationController] Missing template for zone='%s' mobDefId='%s'", zoneId, mobDefId))
+end
+
+function MobReplicationController:_applyRenderPose(record: MobVisualRecord)
+	local renderPosition = Vector3.new(record.CurrentXZ.X, record.GroundY, record.CurrentXZ.Y)
+	if record.Kind == "Sphere" then
+		local part = record.Part
+		if part ~= nil then
+			part.Position = renderPosition + Vector3.new(0, Config.RenderHeightOffset, 0)
+		end
+		return
+	end
+
+	local model = record.Model
+	if model == nil then
+		return
+	end
+	local desiredYaw = yawFromFacingXZ(record.FacingXZ)
+	local yawDelta = desiredYaw - record.BaseYawRadians
+	local finalRotation = CFrame.Angles(0, yawDelta, 0) * record.BaseRotation
+	model:PivotTo(CFrame.new(renderPosition) * finalRotation)
 end
 
 function MobReplicationController:KnitInit()
@@ -83,11 +241,13 @@ function MobReplicationController:KnitInit()
 	self._mobVisualsFolder = nil :: Instance?
 	self._mobVisualById = {} :: {[string]: MobVisualRecord}
 	self._lastPacketSequence = 0
+	self._warnedMissingTemplateByKey = {} :: {[string]: true}
 end
 
 function MobReplicationController:KnitStart()
 	self._mobService = Knit.GetService("MobService")
-	self._mobVisualsFolder = ensurePath(Workspace, CLIENT_MOB_ROOT_PATH)
+	local renderRootPath = if Config.RenderDebugSpheres then Config.SphereRenderRootPath else Config.ModelRenderRootPath
+	self._mobVisualsFolder = ensurePath(Workspace, renderRootPath)
 
 	self._janitor:Add(self._mobService.MobStateDelta:Connect(function(packet: Packet)
 		self:_handlePacket(packet)
@@ -103,19 +263,62 @@ function MobReplicationController:_destroyVisual(mobId: string)
 	if existing == nil then
 		return
 	end
-	existing.Part:Destroy()
+
+	if existing.Part ~= nil then
+		existing.Part:Destroy()
+	end
+	if existing.Model ~= nil then
+		existing.Model:Destroy()
+	end
+
 	self._mobVisualById[mobId] = nil
+end
+
+function MobReplicationController:_createVisual(
+	mobId: string,
+	zoneId: string,
+	mobDefId: string,
+	parent: Instance
+): (VisualKind?, Part?, Model?)
+	if Config.RenderDebugSpheres then
+		return "Sphere", createSpherePart(mobId, parent), nil
+	end
+
+	local template = resolveTemplate(zoneId, mobDefId)
+	if template == nil then
+		self:_warnMissingTemplateOnce(zoneId, mobDefId)
+		return nil, nil, nil
+	end
+
+	local clone = template:Clone()
+	clone.Name = mobId
+	applyModelPhysicalProps(clone)
+
+	local root = getModelRoot(clone)
+	if root == nil then
+		clone:Destroy()
+		self:_warnMissingTemplateOnce(zoneId, mobDefId)
+		return nil, nil, nil
+	end
+	clone.PrimaryPart = root
+	clone.Parent = parent
+	return "Model", nil, clone
 end
 
 function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobVisualRecord?
 	local mobId = addState.id
-	if typeof(mobId) ~= "string" then
+	local mobDefId = addState.d
+	local zoneId = addState.z
+	if typeof(mobId) ~= "string" or typeof(mobDefId) ~= "string" or typeof(zoneId) ~= "string" then
 		return nil
 	end
 
 	local existing = self._mobVisualById[mobId]
 	if existing ~= nil then
-		return existing
+		if existing.ZoneId == zoneId and existing.MobDefId == mobDefId then
+			return existing
+		end
+		self:_destroyVisual(mobId)
 	end
 
 	local visualsFolder = self._mobVisualsFolder
@@ -123,20 +326,46 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 		return nil
 	end
 
-	local part = createSpherePart(mobId, visualsFolder)
+	local kind, part, model = self:_createVisual(mobId, zoneId, mobDefId, visualsFolder)
+	if kind == nil then
+		return nil
+	end
 	local initialXZ = parseXZ(addState.xz) or DEFAULT_TARGET_XZ
 	local groundY = tonumber(addState.gy) or Config.DefaultGroundY
+	local baseFacingXZ = DEFAULT_FACING_XZ
+	local baseRotation = CFrame.new()
+	local baseYaw = yawFromFacingXZ(baseFacingXZ)
+	if model ~= nil then
+		local modelPivot = model:GetPivot()
+		baseRotation = modelPivot - modelPivot.Position
+		baseFacingXZ = resolveBaseFacingFromModel(model, baseRotation)
+		baseYaw = yawFromFacingXZ(baseFacingXZ)
+	end
 	local record: MobVisualRecord = {
+		Kind = kind,
 		Part = part,
+		Model = model,
 		Revision = tonumber(addState.r) or 0,
+		ZoneId = zoneId,
+		MobDefId = mobDefId,
 		CurrentXZ = initialXZ,
 		TargetXZ = initialXZ,
 		VelocityXZ = Vector2.zero,
 		LastTargetSampleAt = os.clock(),
+		FacingXZ = baseFacingXZ,
+		BaseFacingXZ = baseFacingXZ,
+		BaseRotation = baseRotation,
+		BaseYawRadians = baseYaw,
 		GroundY = groundY,
 	}
 	self._mobVisualById[mobId] = record
-	applyRenderPosition(record)
+	self:_applyRenderPose(record)
+
+	local target: Instance? = if record.Model ~= nil then record.Model else record.Part
+	if target ~= nil then
+		setCommonAttributes(target, addState)
+	end
+
 	return record
 end
 
@@ -167,27 +396,20 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 		record.GroundY = nextGroundY
 	end
 
-	if state.h ~= nil then
-		record.Part:SetAttribute("HP", tonumber(state.h) or 0)
-	end
-	if state.mh ~= nil then
-		record.Part:SetAttribute("MaxHP", tonumber(state.mh) or 0)
-	end
-	if state.st ~= nil then
-		record.Part:SetAttribute("BrainState", tostring(state.st))
-	end
-	if state.z ~= nil then
-		record.Part:SetAttribute("ZoneId", tostring(state.z))
+	local target: Instance? = if record.Model ~= nil then record.Model else record.Part
+	if target ~= nil then
+		setCommonAttributes(target, state)
 	end
 end
 
 function MobReplicationController:_stepSmoothing(dt: number)
 	local alpha = 1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0))
 	alpha = math.clamp(alpha, Config.MinSmoothingAlpha, Config.MaxSmoothingAlpha)
+
 	for _, record in pairs(self._mobVisualById) do
 		local predictedTarget = record.TargetXZ + (record.VelocityXZ * Config.PredictionLeadSeconds)
-		local delta = predictedTarget - record.CurrentXZ
-		if delta.Magnitude >= Config.SnapDistanceStuds then
+		local deltaToPredicted = predictedTarget - record.CurrentXZ
+		if deltaToPredicted.Magnitude >= Config.SnapDistanceStuds then
 			record.CurrentXZ = predictedTarget
 		else
 			local desired = record.CurrentXZ:Lerp(predictedTarget, alpha)
@@ -199,7 +421,13 @@ function MobReplicationController:_stepSmoothing(dt: number)
 				record.CurrentXZ = desired
 			end
 		end
-		applyRenderPosition(record)
+
+		local movementDelta = predictedTarget - record.CurrentXZ
+		if movementDelta.Magnitude > 1e-4 then
+			record.FacingXZ = movementDelta.Unit
+		end
+
+		self:_applyRenderPose(record)
 	end
 end
 
@@ -269,10 +497,10 @@ function MobReplicationController:Destroy()
 	if self._janitor ~= nil then
 		self._janitor:Cleanup()
 	end
-
 	for mobId in pairs(self._mobVisualById) do
 		self:_destroyVisual(mobId)
 	end
+	table.clear(self._warnedMissingTemplateByKey)
 end
 
 return MobReplicationController
