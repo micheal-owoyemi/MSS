@@ -1,10 +1,12 @@
 --!strict
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Janitor = require(ReplicatedStorage.Packages.Janitor)
+local Config = require(script.Parent.MobReplicationControllerConfig)
 
 type Packet = {
 	seq: number?,
@@ -14,14 +16,15 @@ type Packet = {
 }
 
 type MobVisualRecord = {
-	Model: Model,
+	Part: Part,
 	Revision: number,
-	ZoneId: string,
-	MobDefId: string,
+	CurrentXZ: Vector2,
+	TargetXZ: Vector2,
+	GroundY: number,
 }
 
-local DEFAULT_FACING = Vector3.new(0, 0, -1)
-local CLIENT_MOB_ROOT_PATH = {"Game", "MobsClient"}
+local CLIENT_MOB_ROOT_PATH = {"Game", "MobDebugSpheres"}
+local DEFAULT_TARGET_XZ = Vector2.new(0, 0)
 
 local MobReplicationController = Knit.CreateController({
 	Name = "MobReplicationController",
@@ -41,105 +44,34 @@ local function ensurePath(root: Instance, segments: {string}): Instance
 	return cursor
 end
 
-local function resolveModelNode(node: Instance?): Model?
-	if node == nil then
+local function parseXZ(rawXZ: any): Vector2?
+	if typeof(rawXZ) ~= "Vector2" then
 		return nil
 	end
-
-	if node:IsA("Model") then
-		return node
-	end
-
-	local modelChild = node:FindFirstChild("Model")
-	if modelChild and modelChild:IsA("Model") then
-		return modelChild
-	end
-
-	return node:FindFirstChildWhichIsA("Model", true)
+	return rawXZ
 end
 
-local function resolveTemplate(zoneId: string, mobDefId: string): Model?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if assets == nil then
-		return nil
-	end
-	local mobsRoot = assets:FindFirstChild("Mobs")
-	if mobsRoot == nil then
-		return nil
-	end
-
-	local zoneFolder = mobsRoot:FindFirstChild(zoneId)
-	if zoneFolder ~= nil then
-		local zoneMobNode = zoneFolder:FindFirstChild(mobDefId)
-		local zoneMobModel = resolveModelNode(zoneMobNode)
-		if zoneMobModel ~= nil then
-			return zoneMobModel
-		end
-
-		local fallbackZoneModel = zoneFolder:FindFirstChildWhichIsA("Model", true)
-		if fallbackZoneModel ~= nil then
-			return fallbackZoneModel
-		end
-	end
-
-	local directNode = mobsRoot:FindFirstChild(mobDefId)
-	local directModel = resolveModelNode(directNode)
-	if directModel ~= nil then
-		return directModel
-	end
-
-	return nil
+local function createSpherePart(mobId: string, parent: Instance): Part
+	local sphere = Instance.new("Part")
+	sphere.Name = mobId
+	sphere.Shape = Enum.PartType.Ball
+	sphere.Size = Vector3.new(Config.SphereSize, Config.SphereSize, Config.SphereSize)
+	sphere.Color = Color3.fromRGB(255, 170, 0)
+	sphere.Material = Enum.Material.Neon
+	sphere.Anchored = true
+	sphere.CanCollide = false
+	sphere.CanTouch = false
+	sphere.CanQuery = false
+	sphere.Parent = parent
+	return sphere
 end
 
-local function getModelRoot(model: Model): BasePart?
-	if model.PrimaryPart ~= nil then
-		return model.PrimaryPart
-	end
-
-	local humanoidRootPart = model:FindFirstChild("HumanoidRootPart")
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		return humanoidRootPart
-	end
-
-	return model:FindFirstChildWhichIsA("BasePart", true)
-end
-
-local function applyModelPhysicalProps(model: Model)
-	for _, descendant in ipairs(model:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.Anchored = true
-			descendant.CanCollide = false
-			descendant.CanTouch = false
-			descendant.CanQuery = false
-			descendant.Massless = true
-		end
-	end
-end
-
-local function parseFacing(rawFacing: any): Vector3
-	if typeof(rawFacing) ~= "Vector3" then
-		return DEFAULT_FACING
-	end
-	if rawFacing.Magnitude <= 1e-4 then
-		return DEFAULT_FACING
-	end
-	return rawFacing.Unit
-end
-
-local function parsePosition(rawPosition: any): Vector3?
-	if typeof(rawPosition) ~= "Vector3" then
-		return nil
-	end
-	return rawPosition
-end
-
-local function applyTransform(model: Model, rawPosition: any, rawFacing: any)
-	local position = parsePosition(rawPosition)
-	if position == nil then
-		return
-	end
-	local facing = parseFacing(rawFacing)
-	model:PivotTo(CFrame.lookAt(position, position + facing))
+local function applyRenderPosition(record: MobVisualRecord)
+	record.Part.Position = Vector3.new(
+		record.CurrentXZ.X,
+		record.GroundY + Config.RenderHeightOffset,
+		record.CurrentXZ.Y
+	)
 end
 
 function MobReplicationController:KnitInit()
@@ -157,62 +89,49 @@ function MobReplicationController:KnitStart()
 	self._janitor:Add(self._mobService.MobStateDelta:Connect(function(packet: Packet)
 		self:_handlePacket(packet)
 	end), "Disconnect", "MobStateDeltaConnection")
+
+	self._janitor:Add(RunService.RenderStepped:Connect(function(dt: number)
+		self:_stepSmoothing(dt)
+	end), "Disconnect", "RenderSteppedConnection")
 end
 
-function MobReplicationController:_destroyMobVisual(mobId: string)
-	local record = self._mobVisualById[mobId]
-	if record == nil then
+function MobReplicationController:_destroyVisual(mobId: string)
+	local existing = self._mobVisualById[mobId]
+	if existing == nil then
 		return
 	end
-
-	if record.Model ~= nil then
-		record.Model:Destroy()
-	end
+	existing.Part:Destroy()
 	self._mobVisualById[mobId] = nil
 end
 
-function MobReplicationController:_ensureMobVisual(state: {[string]: any}): MobVisualRecord?
-	local mobId = state.id
-	local mobDefId = state.d
-	local zoneId = state.z
-	if typeof(mobId) ~= "string" or typeof(mobDefId) ~= "string" or typeof(zoneId) ~= "string" then
+function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobVisualRecord?
+	local mobId = addState.id
+	if typeof(mobId) ~= "string" then
 		return nil
 	end
 
 	local existing = self._mobVisualById[mobId]
 	if existing ~= nil then
-		if existing.MobDefId == mobDefId and existing.ZoneId == zoneId then
-			return existing
-		end
-		self:_destroyMobVisual(mobId)
+		return existing
 	end
 
-	local template = resolveTemplate(zoneId, mobDefId)
-	if template == nil then
+	local visualsFolder = self._mobVisualsFolder
+	if visualsFolder == nil then
 		return nil
 	end
 
-	local clone = template:Clone()
-	clone.Name = mobId
-	applyModelPhysicalProps(clone)
-
-	local rootPart = getModelRoot(clone)
-	if rootPart == nil then
-		clone:Destroy()
-		return nil
-	end
-	clone.PrimaryPart = rootPart
-
-	clone.Parent = self._mobVisualsFolder
-	applyTransform(clone, state.p, state.f)
-
+	local part = createSpherePart(mobId, visualsFolder)
+	local initialXZ = parseXZ(addState.xz) or DEFAULT_TARGET_XZ
+	local groundY = tonumber(addState.gy) or Config.DefaultGroundY
 	local record: MobVisualRecord = {
-		Model = clone,
-		Revision = tonumber(state.r) or 0,
-		ZoneId = zoneId,
-		MobDefId = mobDefId,
+		Part = part,
+		Revision = tonumber(addState.r) or 0,
+		CurrentXZ = initialXZ,
+		TargetXZ = initialXZ,
+		GroundY = groundY,
 	}
 	self._mobVisualById[mobId] = record
+	applyRenderPosition(record)
 	return record
 end
 
@@ -223,27 +142,41 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 	end
 
 	record.Revision = revision
-	applyTransform(record.Model, state.p, state.f)
+	local nextXZ = parseXZ(state.xz)
+	if nextXZ ~= nil then
+		record.TargetXZ = nextXZ
+	end
+
+	local nextGroundY = tonumber(state.gy)
+	if nextGroundY ~= nil then
+		record.GroundY = nextGroundY
+	end
 
 	if state.h ~= nil then
-		record.Model:SetAttribute("HP", tonumber(state.h) or 0)
+		record.Part:SetAttribute("HP", tonumber(state.h) or 0)
 	end
 	if state.mh ~= nil then
-		record.Model:SetAttribute("MaxHP", tonumber(state.mh) or 0)
-	end
-	if state.al ~= nil then
-		record.Model:SetAttribute("Alive", state.al == true)
-	end
-	if state.at ~= nil then
-		record.Model:SetAttribute("Attackable", state.at == true)
+		record.Part:SetAttribute("MaxHP", tonumber(state.mh) or 0)
 	end
 	if state.st ~= nil then
-		record.Model:SetAttribute("BrainState", tostring(state.st))
+		record.Part:SetAttribute("BrainState", tostring(state.st))
 	end
-	if state.tu ~= nil then
-		record.Model:SetAttribute("TargetUserId", tonumber(state.tu))
-	else
-		record.Model:SetAttribute("TargetUserId", nil)
+	if state.z ~= nil then
+		record.Part:SetAttribute("ZoneId", tostring(state.z))
+	end
+end
+
+function MobReplicationController:_stepSmoothing(dt: number)
+	local alpha = 1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0))
+	alpha = math.clamp(alpha, Config.MinSmoothingAlpha, Config.MaxSmoothingAlpha)
+	for _, record in pairs(self._mobVisualById) do
+		local delta = record.TargetXZ - record.CurrentXZ
+		if delta.Magnitude >= Config.SnapDistanceStuds then
+			record.CurrentXZ = record.TargetXZ
+		else
+			record.CurrentXZ = record.CurrentXZ:Lerp(record.TargetXZ, alpha)
+		end
+		applyRenderPosition(record)
 	end
 end
 
@@ -264,7 +197,7 @@ function MobReplicationController:_handlePacket(packet: Packet)
 	if typeof(removes) == "table" then
 		for _, mobId in ipairs(removes) do
 			if typeof(mobId) == "string" then
-				self:_destroyMobVisual(mobId)
+				self:_destroyVisual(mobId)
 			end
 		end
 	end
@@ -273,9 +206,17 @@ function MobReplicationController:_handlePacket(packet: Packet)
 	if typeof(adds) == "table" then
 		for _, addState in ipairs(adds) do
 			if typeof(addState) == "table" then
-				local record = self:_ensureMobVisual(addState)
-				if record ~= nil then
-					self:_applyState(record, addState)
+				local alive = addState.al
+				if alive == false then
+					local mobId = addState.id
+					if typeof(mobId) == "string" then
+						self:_destroyVisual(mobId)
+					end
+				else
+					local record = self:_ensureVisual(addState)
+					if record ~= nil then
+						self:_applyState(record, addState)
+					end
 				end
 			end
 		end
@@ -287,9 +228,13 @@ function MobReplicationController:_handlePacket(packet: Packet)
 			if typeof(updateState) == "table" then
 				local mobId = updateState.id
 				if typeof(mobId) == "string" then
-					local record = self._mobVisualById[mobId]
-					if record ~= nil then
-						self:_applyState(record, updateState)
+					if updateState.al == false then
+						self:_destroyVisual(mobId)
+					else
+						local record = self._mobVisualById[mobId]
+						if record ~= nil then
+							self:_applyState(record, updateState)
+						end
 					end
 				end
 			end
@@ -301,8 +246,9 @@ function MobReplicationController:Destroy()
 	if self._janitor ~= nil then
 		self._janitor:Cleanup()
 	end
+
 	for mobId in pairs(self._mobVisualById) do
-		self:_destroyMobVisual(mobId)
+		self:_destroyVisual(mobId)
 	end
 end
 

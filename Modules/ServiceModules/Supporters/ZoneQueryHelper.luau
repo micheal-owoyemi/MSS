@@ -314,6 +314,22 @@ function ZoneQueryHelper.GetZoneBounds(zoneId: string, forceRefresh: boolean?): 
 	return NormalizedBoundsByZone[zoneId]
 end
 
+function ZoneQueryHelper.GetZoneGroundY(zoneId: string, forceRefresh: boolean?): number?
+	local bounds = ZoneQueryHelper.GetZoneBounds(zoneId, forceRefresh)
+	if bounds == nil then
+		return nil
+	end
+	return bounds.Min.Y
+end
+
+function ZoneQueryHelper.GetZoneCenter(zoneId: string, forceRefresh: boolean?): Vector3?
+	local bounds = ZoneQueryHelper.GetZoneBounds(zoneId, forceRefresh)
+	if bounds == nil then
+		return nil
+	end
+	return (bounds.Min + bounds.Max) * 0.5
+end
+
 function ZoneQueryHelper.IsPointInBounds(point: Vector3, bounds: ZoneBounds, padding: number?): boolean
 	local pad = if typeof(padding) == "number" and padding > 0 then padding else 0
 
@@ -332,6 +348,84 @@ function ZoneQueryHelper.IsPointInZone(point: Vector3, zoneId: string, padding: 
 	end
 
 	return ZoneQueryHelper.IsPointInBounds(point, bounds, padding)
+end
+
+function ZoneQueryHelper.IsPointXZInBounds(pointXZ: Vector2, bounds: ZoneBounds, padding: number?): boolean
+	local pad = if typeof(padding) == "number" and padding > 0 then padding else 0
+	return pointXZ.X >= (bounds.Min.X - pad)
+		and pointXZ.X <= (bounds.Max.X + pad)
+		and pointXZ.Y >= (bounds.Min.Z - pad)
+		and pointXZ.Y <= (bounds.Max.Z + pad)
+end
+
+function ZoneQueryHelper.IsPointXZInZone(pointXZ: Vector2, zoneId: string, padding: number?): boolean
+	local bounds = ZoneQueryHelper.GetZoneBounds(zoneId, false)
+	if bounds == nil then
+		return false
+	end
+	return ZoneQueryHelper.IsPointXZInBounds(pointXZ, bounds, padding)
+end
+
+function ZoneQueryHelper.ClampXZToBounds(pointXZ: Vector2, bounds: ZoneBounds, insetStuds: number?): Vector2
+	local inset = if typeof(insetStuds) == "number" and insetStuds > 0 then insetStuds else 0
+	local minX = bounds.Min.X + inset
+	local maxX = bounds.Max.X - inset
+	local minZ = bounds.Min.Z + inset
+	local maxZ = bounds.Max.Z - inset
+
+	if minX > maxX then
+		local centerX = (bounds.Min.X + bounds.Max.X) * 0.5
+		minX = centerX
+		maxX = centerX
+	end
+	if minZ > maxZ then
+		local centerZ = (bounds.Min.Z + bounds.Max.Z) * 0.5
+		minZ = centerZ
+		maxZ = centerZ
+	end
+
+	return Vector2.new(
+		math.clamp(pointXZ.X, minX, maxX),
+		math.clamp(pointXZ.Y, minZ, maxZ)
+	)
+end
+
+function ZoneQueryHelper.ClampXZToZone(pointXZ: Vector2, zoneId: string, insetStuds: number?): Vector2?
+	local bounds = ZoneQueryHelper.GetZoneBounds(zoneId, false)
+	if bounds == nil then
+		return nil
+	end
+	return ZoneQueryHelper.ClampXZToBounds(pointXZ, bounds, insetStuds)
+end
+
+function ZoneQueryHelper.SampleRandomPointXZInZone(zoneId: string, rng: Random?, insetStuds: number?): Vector2?
+	local bounds = ZoneQueryHelper.GetZoneBounds(zoneId, false)
+	if bounds == nil then
+		return nil
+	end
+
+	local inset = if typeof(insetStuds) == "number" and insetStuds > 0 then insetStuds else 0
+	local minX = bounds.Min.X + inset
+	local maxX = bounds.Max.X - inset
+	local minZ = bounds.Min.Z + inset
+	local maxZ = bounds.Max.Z - inset
+
+	if minX > maxX then
+		local centerX = (bounds.Min.X + bounds.Max.X) * 0.5
+		minX = centerX
+		maxX = centerX
+	end
+	if minZ > maxZ then
+		local centerZ = (bounds.Min.Z + bounds.Max.Z) * 0.5
+		minZ = centerZ
+		maxZ = centerZ
+	end
+
+	local randomSource = if rng ~= nil then rng else Random.new()
+	return Vector2.new(
+		randomSource:NextNumber(minX, maxX),
+		randomSource:NextNumber(minZ, maxZ)
+	)
 end
 
 function ZoneQueryHelper.GetContainingZoneId(point: Vector3, padding: number?): string?

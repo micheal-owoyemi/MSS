@@ -6,6 +6,7 @@ local TableUtil = require(ReplicatedStorage.Util.TableUtil)
 local Data_ZoneDefs = {
 	Castle = {
 		DisplayName = "Castle",
+		MaxMobs = 20,
 		UnlockRequirement = {
 			Currency = "Gold",
 			Amount = 0,

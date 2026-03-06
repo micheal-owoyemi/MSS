@@ -20,6 +20,8 @@ local ServiceModules = ServerStorage:WaitForChild("ServiceModules")
 local SupportersFolder = ServiceModules:WaitForChild("Supporters")
 local MobBrain = require(SupportersFolder:WaitForChild("MobBrain"))
 local ZoneQueryHelper = require(SupportersFolder:WaitForChild("ZoneQueryHelper"))
+local MapCollisionHelper = require(SupportersFolder:WaitForChild("MapCollisionHelper"))
+local RoamBehavior = require(SupportersFolder:WaitForChild("MobBrain"):WaitForChild("RoamBehavior"))
 
 type ZoneServiceLike = {
 	GetPlayerZone: (self: ZoneServiceLike, player: Player) -> (string?, string?),
@@ -41,6 +43,8 @@ type MobClientState = {
 	ZoneId: string,
 	SpawnIndex: number,
 	Position: Vector3,
+	PositionXZ: Vector2,
+	GroundY: number,
 	Facing: Vector3,
 	HP: number,
 	MaxHP: number,
@@ -53,6 +57,13 @@ type MobClientState = {
 
 type MobServerState = {
 	SpawnOrigin: Vector3,
+	PositionXZ: Vector2,
+	FacingXZ: Vector2,
+	GroundY: number,
+	RoamState: "Idle" | "RoamMove",
+	RoamStateUntil: number,
+	RoamDestinationXZ: Vector2?,
+	MoveSpeed: number,
 	LastStateSyncAt: number,
 	LastDamagedAt: number,
 	RespawnAt: number?,
@@ -155,6 +166,30 @@ local function resolveModelPositionAndFacing(model: Model?, fallbackPosition: Ve
 	return rootPart.Position, lookVector.Unit
 end
 
+local function vector2FromVector3(value: Vector3): Vector2
+	return Vector2.new(value.X, value.Z)
+end
+
+local function vector3FromXZ(positionXZ: Vector2, y: number): Vector3
+	return Vector3.new(positionXZ.X, y, positionXZ.Y)
+end
+
+local function facingVector2FromVector3(value: Vector3): Vector2
+	local horizontal = Vector2.new(value.X, value.Z)
+	if horizontal.Magnitude <= 1e-4 then
+		return Vector2.new(0, -1)
+	end
+	return horizontal.Unit
+end
+
+local function facingVector3FromVector2(value: Vector2): Vector3
+	if value.Magnitude <= 1e-4 then
+		return Vector3.new(0, 0, -1)
+	end
+	local unit = value.Unit
+	return Vector3.new(unit.X, 0, unit.Y)
+end
+
 local function sanitizeMobDef(rawMobDef: {[string]: any}, defaults: {[string]: any}): {[string]: any}
 	local baseHp = tonumber(rawMobDef.BaseHP) or 1
 	local damage = tonumber(rawMobDef.Damage) or 0
@@ -251,8 +286,6 @@ function MobService:KnitInit()
 		MaxRemovesPerFlushPerPlayer = Config.MaxRemovesPerFlushPerPlayer,
 		MaxTotalMobEntriesPerFlush = Config.MaxTotalMobEntriesPerFlush,
 	})
-
-	print("Mob Service Init")
 end
 
 function MobService:KnitStart()
@@ -260,6 +293,13 @@ function MobService:KnitStart()
 	self._rewardService = Knit.GetService("RewardService") :: RewardServiceLike
 	self._gameplayManager = Knit.GetService("GameplayManagerService") :: GameplayManagerServiceLike
 	self._mobContainer = ModelResolver.ResolveSpawnContainer(Workspace, self._config.SpawnRootPath)
+
+	local zoneIds = {}
+	for zoneId in pairs(self._zoneDefs) do
+		table.insert(zoneIds, zoneId)
+	end
+	table.sort(zoneIds)
+	MapCollisionHelper.WarmZones(zoneIds)
 
 	local okInit, initErr = pcall(function()
 		self:_initializeSpawnSlots()
@@ -317,12 +357,15 @@ function MobService:_unregisterMobFromZone(zoneId: string, mobId: string)
 end
 
 function MobService:_newClientState(mobId: string, zoneId: string, spawnIndex: number, spawnOrigin: Vector3): MobClientState
+	local positionXZ = vector2FromVector3(spawnOrigin)
 	return {
 		MobId = mobId,
 		MobDefId = "",
 		ZoneId = zoneId,
 		SpawnIndex = spawnIndex,
 		Position = spawnOrigin,
+		PositionXZ = positionXZ,
+		GroundY = spawnOrigin.Y,
 		Facing = Vector3.new(0, 0, -1),
 		HP = 0,
 		MaxHP = 0,
@@ -342,19 +385,69 @@ function MobService:_isFacingDifferent(currentFacing: Vector3, nextFacing: Vecto
 	return currentFacing:Dot(nextFacing) < self._config.FacingDotThreshold
 end
 
-function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: number)
+function MobService:_hasAttackers(record: MobRuntimeRecord): boolean
+	return next(record.Attackers) ~= nil
+end
+
+function MobService:_setAuthoritativePosition(
+	record: MobRuntimeRecord,
+	position: Vector3,
+	facing: Vector3?
+): boolean
+	local serverState = record.ServerState
 	local clientState = record.ClientState
 	local changed = false
+	local positionXZ = vector2FromVector3(position)
 
-	local nextPosition, nextFacing = resolveModelPositionAndFacing(record.Model, clientState.Position, clientState.Facing)
-	if (nextPosition - clientState.Position).Magnitude^2 > self._positionThresholdSquared then
-		clientState.Position = nextPosition
+	if (positionXZ - serverState.PositionXZ).Magnitude > 1e-4 then
+		serverState.PositionXZ = positionXZ
 		changed = true
 	end
-	if self:_isFacingDifferent(clientState.Facing, nextFacing) then
-		clientState.Facing = nextFacing
+	if math.abs(position.Y - serverState.GroundY) > 1e-4 then
+		serverState.GroundY = position.Y
 		changed = true
 	end
+
+	if (position - clientState.Position).Magnitude^2 > self._positionThresholdSquared then
+		clientState.Position = position
+		changed = true
+	end
+	if (positionXZ - clientState.PositionXZ).Magnitude > 1e-4 then
+		clientState.PositionXZ = positionXZ
+		changed = true
+	end
+	if math.abs(position.Y - clientState.GroundY) > 1e-4 then
+		clientState.GroundY = position.Y
+		changed = true
+	end
+
+	if facing ~= nil then
+		local nextFacing = if facing.Magnitude <= 1e-4 then clientState.Facing else facing.Unit
+		if self:_isFacingDifferent(clientState.Facing, nextFacing) then
+			clientState.Facing = nextFacing
+			serverState.FacingXZ = facingVector2FromVector3(nextFacing)
+			changed = true
+		end
+	end
+
+	return changed
+end
+
+function MobService:_syncModelToAuthoritative(record: MobRuntimeRecord)
+	local model = record.Model
+	if model == nil then
+		return
+	end
+
+	local clientState = record.ClientState
+	local facing = if clientState.Facing.Magnitude <= 1e-4 then Vector3.new(0, 0, -1) else clientState.Facing.Unit
+	model:PivotTo(CFrame.lookAt(clientState.Position, clientState.Position + facing))
+end
+
+function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: number)
+	local clientState = record.ClientState
+	local serverState = record.ServerState
+	local changed = false
 
 	local brain = record.Brain
 	if brain ~= nil then
@@ -370,6 +463,24 @@ function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: n
 			clientState.TargetUserId = targetUserId
 			changed = true
 		end
+	end
+
+	local combatAuthority = self:_hasAttackers(record)
+	if combatAuthority then
+		local nextPosition, nextFacing = resolveModelPositionAndFacing(
+			record.Model,
+			vector3FromXZ(serverState.PositionXZ, serverState.GroundY),
+			clientState.Facing
+		)
+		if self:_setAuthoritativePosition(record, nextPosition, nextFacing) then
+			changed = true
+		end
+	else
+		local authoritativePosition = vector3FromXZ(serverState.PositionXZ, serverState.GroundY)
+		if self:_setAuthoritativePosition(record, authoritativePosition, facingVector3FromVector2(serverState.FacingXZ)) then
+			changed = true
+		end
+		self:_syncModelToAuthoritative(record)
 	end
 
 	if changed then
@@ -394,6 +505,7 @@ end
 
 function MobService:_applySpawnState(record: MobRuntimeRecord, mobDefId: string, mobDef: {[string]: any})
 	local clientState = record.ClientState
+	local serverState = record.ServerState
 	local changed = false
 
 	if clientState.MobDefId ~= mobDefId then
@@ -426,13 +538,9 @@ function MobService:_applySpawnState(record: MobRuntimeRecord, mobDefId: string,
 		changed = true
 	end
 
-	local nextPosition, nextFacing = resolveModelPositionAndFacing(record.Model, clientState.Position, clientState.Facing)
-	if (nextPosition - clientState.Position).Magnitude^2 > self._positionThresholdSquared then
-		clientState.Position = nextPosition
-		changed = true
-	end
-	if self:_isFacingDifferent(clientState.Facing, nextFacing) then
-		clientState.Facing = nextFacing
+	local spawnPosition = vector3FromXZ(serverState.PositionXZ, serverState.GroundY)
+	local spawnFacing = facingVector3FromVector2(serverState.FacingXZ)
+	if self:_setAuthoritativePosition(record, spawnPosition, spawnFacing) then
 		changed = true
 	end
 
@@ -443,6 +551,7 @@ end
 
 function MobService:_applyDeathState(record: MobRuntimeRecord)
 	local clientState = record.ClientState
+	local serverState = record.ServerState
 	local changed = false
 
 	if clientState.HP ~= 0 then
@@ -465,20 +574,151 @@ function MobService:_applyDeathState(record: MobRuntimeRecord)
 		clientState.TargetUserId = nil
 		changed = true
 	end
+	serverState.RoamDestinationXZ = nil
+	serverState.RoamState = "Idle"
 
 	if changed then
 		self:_bumpRevision(record)
 	end
 end
 
-function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[string]: any}?): {Vector3}
-	local spawnOrigins = {}
-	if typeof(zoneDef) == "table" and typeof(zoneDef.SpawnPoints) == "table" then
-		for _, spawnOrigin in ipairs(zoneDef.SpawnPoints) do
-			if typeof(spawnOrigin) == "Vector3" then
-				table.insert(spawnOrigins, spawnOrigin)
+function MobService:_resolveZoneGroundY(zoneId: string, fallbackY: number): number
+	local getZoneGroundY = ZoneQueryHelper.GetZoneGroundY
+	if typeof(getZoneGroundY) == "function" then
+		local groundY = getZoneGroundY(zoneId, true)
+		if ValidationUtil.isFiniteNumber(groundY) then
+			return (groundY :: number) + self._config.MobGroundOffset
+		end
+	end
+	return fallbackY
+end
+
+function MobService:_isPositionInsideZone(zoneId: string, position: Vector3): boolean
+	local pointXZ = vector2FromVector3(position)
+	local isPointXZInZone = ZoneQueryHelper.IsPointXZInZone
+	if typeof(isPointXZInZone) == "function" then
+		return isPointXZInZone(pointXZ, zoneId, self._config.ZoneContainmentPadding)
+	end
+	return ZoneQueryHelper.IsPointInZone(position, zoneId, self._config.ZoneContainmentPadding)
+end
+
+function MobService:_isPositionTooCloseToMob(
+	zoneId: string,
+	position: Vector3,
+	minimumDistance: number,
+	ignoreMobId: string?,
+	pendingPositions: {Vector3}?
+): boolean
+	local minDistanceSq = minimumDistance * minimumDistance
+	local zoneSet = self._mobIdsByZone[zoneId]
+	if zoneSet ~= nil then
+		for mobId in pairs(zoneSet) do
+			if mobId ~= ignoreMobId then
+				local otherRecord = self._mobById[mobId]
+				if otherRecord ~= nil and otherRecord.ClientState.Alive == true then
+					local otherPosition = vector3FromXZ(otherRecord.ServerState.PositionXZ, otherRecord.ServerState.GroundY)
+					local delta = position - otherPosition
+					local distanceSq = (delta.X * delta.X) + (delta.Z * delta.Z)
+					if distanceSq < minDistanceSq then
+						return true
+					end
+				end
 			end
 		end
+	end
+
+	if pendingPositions ~= nil then
+		for _, pendingPosition in ipairs(pendingPositions) do
+			local delta = position - pendingPosition
+			local distanceSq = (delta.X * delta.X) + (delta.Z * delta.Z)
+			if distanceSq < minDistanceSq then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+function MobService:_isPositionBlocked(zoneId: string, position: Vector3, radius: number, height: number): boolean
+	return MapCollisionHelper.IsPositionObstructed(zoneId, position, radius, height)
+end
+
+function MobService:_isSpawnPositionValid(
+	zoneId: string,
+	position: Vector3,
+	minimumSeparation: number,
+	ignoreMobId: string?,
+	pendingPositions: {Vector3}?
+): boolean
+	if not self:_isPositionInsideZone(zoneId, position) then
+		return false
+	end
+	if self:_isPositionBlocked(zoneId, position, self._config.SpawnCollisionRadius, self._config.SpawnCollisionHeight) then
+		return false
+	end
+	if self:_isPositionTooCloseToMob(zoneId, position, minimumSeparation, ignoreMobId, pendingPositions) then
+		return false
+	end
+	return true
+end
+
+function MobService:_sampleSpawnPositionForZone(
+	zoneId: string,
+	groundY: number,
+	minimumSeparation: number,
+	ignoreMobId: string?,
+	pendingPositions: {Vector3}?
+): Vector3?
+	local samplePointInZone = ZoneQueryHelper.SampleRandomPointXZInZone
+	for _ = 1, self._config.SpawnSampleAttemptsPerMob do
+		local sampledXZ: Vector2? = nil
+		if typeof(samplePointInZone) == "function" then
+			sampledXZ = samplePointInZone(zoneId, self._rng, self._config.SpawnZoneInsetStuds)
+		end
+		if sampledXZ ~= nil then
+			local candidate = vector3FromXZ(sampledXZ, groundY)
+			if self:_isSpawnPositionValid(zoneId, candidate, minimumSeparation, ignoreMobId, pendingPositions) then
+				return candidate
+			end
+		end
+	end
+	return nil
+end
+
+function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[string]: any}?): {Vector3}
+	local maxMobs = self._config.DefaultMaxMobsPerZone
+	if typeof(zoneDef) == "table" and ValidationUtil.isFiniteNumber(zoneDef.MaxMobs) then
+		maxMobs = math.max(0, math.floor(zoneDef.MaxMobs))
+	end
+	if maxMobs <= 0 then
+		return {}
+	end
+
+	local spawnOrigins = {}
+	local minimumSeparation = math.max(0, self._config.SpawnMinSeparationStuds)
+	local groundY = self:_resolveZoneGroundY(zoneId, self._config.FallbackSpawnHeightOffset)
+
+	if typeof(zoneDef) == "table" and typeof(zoneDef.SpawnPoints) == "table" then
+		for _, spawnOrigin in ipairs(zoneDef.SpawnPoints) do
+			if #spawnOrigins >= maxMobs then
+				break
+			end
+			if typeof(spawnOrigin) == "Vector3" then
+				local normalized = Vector3.new(spawnOrigin.X, groundY, spawnOrigin.Z)
+				if self:_isSpawnPositionValid(zoneId, normalized, minimumSeparation, nil, spawnOrigins) then
+					table.insert(spawnOrigins, normalized)
+				end
+			end
+		end
+	end
+
+	while #spawnOrigins < maxMobs do
+		local sampled = self:_sampleSpawnPositionForZone(zoneId, groundY, minimumSeparation, nil, spawnOrigins)
+		if sampled == nil then
+			break
+		end
+		table.insert(spawnOrigins, sampled)
 	end
 
 	if #spawnOrigins > 0 then
@@ -506,19 +746,25 @@ function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[strin
 
 	local fallbackOrigins = buildFallbackSpawnPointsFromBounds(
 		markerBounds,
-		math.max(1, self._config.FallbackSpawnPointsPerZone),
+		math.max(1, math.min(maxMobs, self._config.FallbackSpawnPointsPerZone)),
 		math.max(0, self._config.FallbackSpawnInsetStuds),
 		self._config.FallbackSpawnHeightOffset
 	)
-	if #fallbackOrigins == 0 then
-		if self._warnedNoSpawnPointsByZone[zoneId] == nil then
-			self._warnedNoSpawnPointsByZone[zoneId] = true
-			warn(string.format("[MobService] Unable to build fallback spawn points for zone '%s'", zoneId))
+	for _, fallbackOrigin in ipairs(fallbackOrigins) do
+		local normalized = Vector3.new(fallbackOrigin.X, groundY, fallbackOrigin.Z)
+		if self:_isSpawnPositionValid(zoneId, normalized, minimumSeparation, nil, spawnOrigins) then
+			table.insert(spawnOrigins, normalized)
+			if #spawnOrigins >= maxMobs then
+				break
+			end
 		end
-		return spawnOrigins
+	end
+	if #spawnOrigins == 0 and self._warnedNoSpawnPointsByZone[zoneId] == nil then
+		self._warnedNoSpawnPointsByZone[zoneId] = true
+		warn(string.format("[MobService] Unable to resolve valid spawn points for zone '%s'", zoneId))
 	end
 
-	return fallbackOrigins
+	return spawnOrigins
 end
 
 function MobService:_initializeSpawnSlots()
@@ -538,13 +784,20 @@ function MobService:_initializeSpawnSlots()
 							MobDef = {},
 							Model = nil,
 							Brain = nil,
-							ClientState = self:_newClientState(mobId, zoneId, spawnIndex, spawnOrigin),
-							ServerState = {
-								SpawnOrigin = spawnOrigin,
-								LastStateSyncAt = 0,
-								LastDamagedAt = 0,
-								RespawnAt = nil,
-							},
+								ClientState = self:_newClientState(mobId, zoneId, spawnIndex, spawnOrigin),
+								ServerState = {
+									SpawnOrigin = spawnOrigin,
+									PositionXZ = vector2FromVector3(spawnOrigin),
+									FacingXZ = Vector2.new(0, -1),
+									GroundY = spawnOrigin.Y,
+									RoamState = "Idle",
+									RoamStateUntil = 0,
+									RoamDestinationXZ = nil,
+									MoveSpeed = 0,
+									LastStateSyncAt = 0,
+									LastDamagedAt = 0,
+									RespawnAt = nil,
+								},
 							Attackers = {},
 							RespawnToken = nil,
 							ResolvingDeath = false,
@@ -661,6 +914,39 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 	end
 
 	local mobDef = sanitizeMobDef(rawMobDef, self._config)
+	local spawnPosition = record.ServerState.SpawnOrigin
+	if not self:_isSpawnPositionValid(
+		record.ZoneId,
+		spawnPosition,
+		self._config.SpawnMinSeparationStuds,
+		record.MobId,
+		nil
+	) then
+		local groundY = self:_resolveZoneGroundY(record.ZoneId, spawnPosition.Y)
+		local sampledSpawn = self:_sampleSpawnPositionForZone(
+			record.ZoneId,
+			groundY,
+			self._config.SpawnMinSeparationStuds,
+			record.MobId,
+			nil
+		)
+		if sampledSpawn ~= nil then
+			spawnPosition = sampledSpawn
+		end
+	end
+
+	record.ServerState.SpawnOrigin = spawnPosition
+	record.ServerState.PositionXZ = vector2FromVector3(spawnPosition)
+	record.ServerState.GroundY = spawnPosition.Y
+	record.ServerState.FacingXZ = Vector2.new(0, -1)
+	record.ServerState.RoamState = "Idle"
+	record.ServerState.RoamStateUntil = 0
+	record.ServerState.RoamDestinationXZ = nil
+	record.ServerState.MoveSpeed = math.max(
+		self._config.RoamMinSpeedStudsPerSecond,
+		(tonumber(mobDef.MoveSpeed) or 12) * self._config.RoamSpeedMultiplier
+	)
+
 	local template = ModelResolver.ResolveMobTemplate(ReplicatedStorage, self._config.AssetsRootPath, record.ZoneId, mobDefId, mobDef)
 	if template == nil then
 		return false, "MissingMobTemplate"
@@ -672,7 +958,7 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 		record.MobId,
 		record.ZoneId,
 		mobDefId,
-		record.ServerState.SpawnOrigin
+		spawnPosition
 	)
 	if model == nil then
 		return false, "InvalidMobModel"
@@ -909,6 +1195,161 @@ function MobService:_executeMobAttack(record: MobRuntimeRecord, player: Player, 
 	return true
 end
 
+function MobService:_isRoamStepPositionValid(record: MobRuntimeRecord, candidateXZ: Vector2): boolean
+	local zoneId = record.ZoneId
+	local isPointXZInZone = ZoneQueryHelper.IsPointXZInZone
+	if typeof(isPointXZInZone) == "function" then
+		if not isPointXZInZone(candidateXZ, zoneId, self._config.ZoneContainmentPadding) then
+			return false
+		end
+	else
+		local worldPositionFallback = vector3FromXZ(candidateXZ, record.ServerState.GroundY)
+		if not self:_isPositionInsideZone(zoneId, worldPositionFallback) then
+			return false
+		end
+	end
+
+	local worldPosition = vector3FromXZ(candidateXZ, record.ServerState.GroundY)
+	if self:_isPositionBlocked(zoneId, worldPosition, self._config.RoamCollisionRadius, self._config.RoamCollisionHeight) then
+		return false
+	end
+
+	return true
+end
+
+function MobService:_isRoamDestinationValid(record: MobRuntimeRecord, candidateXZ: Vector2): boolean
+	if not self:_isRoamStepPositionValid(record, candidateXZ) then
+		return false
+	end
+
+	local worldPosition = vector3FromXZ(candidateXZ, record.ServerState.GroundY)
+	return not self:_isPositionTooCloseToMob(
+		record.ZoneId,
+		worldPosition,
+		self._config.RoamSeparationRadius,
+		record.MobId,
+		nil
+	)
+end
+
+function MobService:_sampleRoamDestinationXZ(record: MobRuntimeRecord): Vector2?
+	local samplePointInZone = ZoneQueryHelper.SampleRandomPointXZInZone
+	if typeof(samplePointInZone) ~= "function" then
+		return nil
+	end
+
+	for _ = 1, self._config.RoamDestinationSampleAttempts do
+		local candidateXZ = samplePointInZone(record.ZoneId, self._rng, self._config.RoamDestinationInsetStuds)
+		if candidateXZ ~= nil and self:_isRoamDestinationValid(record, candidateXZ) then
+			return candidateXZ
+		end
+	end
+
+	return nil
+end
+
+function MobService:_getLocalSeparationOffsetXZ(record: MobRuntimeRecord, currentXZ: Vector2): Vector2?
+	local separationRadius = self._config.RoamSeparationRadius
+	if separationRadius <= 0 then
+		return nil
+	end
+
+	local zoneSet = self._mobIdsByZone[record.ZoneId]
+	if zoneSet == nil then
+		return nil
+	end
+
+	local radiusSq = separationRadius * separationRadius
+	local push = Vector2.zero
+	for mobId in pairs(zoneSet) do
+		if mobId ~= record.MobId then
+			local otherRecord = self._mobById[mobId]
+			if otherRecord ~= nil and otherRecord.ClientState.Alive == true then
+				local delta = currentXZ - otherRecord.ServerState.PositionXZ
+				local distSq = delta:Dot(delta)
+				if distSq > 1e-6 and distSq < radiusSq then
+					local distance = math.sqrt(distSq)
+					local strength = (separationRadius - distance) / separationRadius
+					push += (delta / distance) * strength
+				end
+			end
+		end
+	end
+
+	if push.Magnitude <= 1e-4 then
+		return nil
+	end
+
+	local weight = math.max(0, self._config.RoamSeparationWeight)
+	if weight <= 0 then
+		return nil
+	end
+
+	return push.Unit * weight
+end
+
+function MobService:_stepRoam(record: MobRuntimeRecord, now: number, dt: number)
+	local serverState = record.ServerState
+	local runtime = {
+		State = serverState.RoamState,
+		StateUntil = serverState.RoamStateUntil,
+		DestinationXZ = serverState.RoamDestinationXZ,
+		FacingXZ = serverState.FacingXZ,
+		Speed = serverState.MoveSpeed,
+	}
+
+	local result = RoamBehavior.Step({
+		Now = now,
+		Dt = dt,
+		Runtime = runtime,
+		PositionXZ = serverState.PositionXZ,
+		IdleDurationMin = self._config.RoamIdleMinSeconds,
+		IdleDurationMax = self._config.RoamIdleMaxSeconds,
+		MoveDurationMin = self._config.RoamMoveDurationMinSeconds,
+		MoveDurationMax = self._config.RoamMoveDurationMaxSeconds,
+		ArriveDistance = self._config.RoamArrivalDistanceStuds,
+		Rng = self._rng,
+		SampleDestination = function(_currentXZ: Vector2)
+			return self:_sampleRoamDestinationXZ(record)
+		end,
+		IsValidPosition = function(candidateXZ: Vector2)
+			return self:_isRoamStepPositionValid(record, candidateXZ)
+		end,
+		GetSeparationOffset = function(currentXZ: Vector2)
+			return self:_getLocalSeparationOffsetXZ(record, currentXZ)
+		end,
+	})
+
+	serverState.RoamState = result.State
+	serverState.RoamStateUntil = result.StateUntil
+	serverState.RoamDestinationXZ = result.DestinationXZ
+	serverState.PositionXZ = result.PositionXZ
+	serverState.FacingXZ = result.FacingXZ
+
+	local changed = false
+	local clientState = record.ClientState
+	if clientState.BrainState ~= result.State then
+		clientState.BrainState = result.State
+		changed = true
+	end
+	if clientState.TargetUserId ~= nil then
+		clientState.TargetUserId = nil
+		changed = true
+	end
+
+	local worldPosition = vector3FromXZ(result.PositionXZ, serverState.GroundY)
+	if self:_setAuthoritativePosition(record, worldPosition, facingVector3FromVector2(result.FacingXZ)) then
+		changed = true
+	end
+
+	if changed then
+		self:_bumpRevision(record)
+	end
+
+	self:_syncModelToAuthoritative(record)
+	serverState.LastStateSyncAt = now
+end
+
 function MobService:StepMobSimulation(now: number, dt: number)
 	self._simulationAccumulator += math.max(dt, 0)
 	local stepInterval = self._config.SimulationStepIntervalSeconds
@@ -919,15 +1360,19 @@ function MobService:StepMobSimulation(now: number, dt: number)
 		local stepNow = now - self._simulationAccumulator
 
 		for _, record in pairs(self._mobById) do
-			if record.ClientState.Alive and record.Brain ~= nil then
-				local ok, err = pcall(function()
-					record.Brain:Step(stepNow)
-				end)
-				if not ok then
-					warn(string.format("[MobService] Brain step failed for %s: %s", record.MobId, tostring(err)))
-				end
+			if record.ClientState.Alive then
+				if self:_hasAttackers(record) and record.Brain ~= nil then
+					local ok, err = pcall(function()
+						record.Brain:Step(stepNow, stepInterval)
+					end)
+					if not ok then
+						warn(string.format("[MobService] Brain step failed for %s: %s", record.MobId, tostring(err)))
+					end
 
-				self:_syncStateFromModelAndBrain(record, stepNow)
+					self:_syncStateFromModelAndBrain(record, stepNow)
+				else
+					self:_stepRoam(record, stepNow, stepInterval)
+				end
 			end
 		end
 
@@ -952,7 +1397,11 @@ function MobService:_serializeMobUpdateState(mobId: string): {[string]: any}?
 	if record == nil then
 		return nil
 	end
-	return StateSerializer.SerializeUpdate(record.ClientState)
+	local payload = StateSerializer.SerializeUpdate(record.ClientState)
+	if self._config.DebugReplicateZoneIdInUpdate ~= true then
+		payload.z = nil
+	end
+	return payload
 end
 
 function MobService:_getRelevantMobIdsForPlayer(player: Player): {string}
@@ -1171,6 +1620,7 @@ function MobService:Destroy()
 	if self._replicationBuffer ~= nil then
 		self._replicationBuffer:Destroy()
 	end
+	MapCollisionHelper.ResetAll()
 
 	table.clear(self._mobById)
 	table.clear(self._mobIdsByZone)

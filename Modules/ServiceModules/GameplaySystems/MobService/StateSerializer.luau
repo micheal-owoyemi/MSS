@@ -5,8 +5,8 @@ export type ClientMobState = {
 	MobDefId: string,
 	ZoneId: string,
 	SpawnIndex: number,
-	Position: Vector3,
-	Facing: Vector3,
+	PositionXZ: Vector2,
+	GroundY: number,
 	HP: number,
 	MaxHP: number,
 	Alive: boolean,
@@ -25,8 +25,8 @@ function StateSerializer.SerializeAdd(state: ClientMobState): {[string]: any}
 		z = state.ZoneId,
 		sp = state.SpawnIndex,
 		r = state.Revision,
-		p = state.Position,
-		f = state.Facing,
+		xz = state.PositionXZ,
+		gy = state.GroundY,
 		h = state.HP,
 		mh = state.MaxHP,
 		al = state.Alive,
@@ -40,14 +40,14 @@ function StateSerializer.SerializeUpdate(state: ClientMobState): {[string]: any}
 	return {
 		id = state.MobId,
 		r = state.Revision,
-		p = state.Position,
-		f = state.Facing,
+		xz = state.PositionXZ,
 		h = state.HP,
 		mh = state.MaxHP,
 		al = state.Alive,
 		at = state.Attackable,
 		st = state.BrainState,
 		tu = state.TargetUserId,
+		z = state.ZoneId,
 	}
 end
 
