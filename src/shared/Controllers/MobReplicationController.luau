@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Janitor = require(ReplicatedStorage.Packages.Janitor)
 local Config = require(script.Parent.MobReplicationControllerConfig)
+local MobAnimationPlayer = require(script.Parent.MobAnimationPlayer)
 
 type Packet = {
 	seq: number?,
@@ -22,6 +23,7 @@ type MobVisualRecord = {
 	Kind: VisualKind,
 	Part: Part?,
 	Model: Model?,
+	AnimationPlayer: any?,
 	Revision: number,
 	ZoneId: string,
 	MobDefId: string,
@@ -206,6 +208,14 @@ local function setCommonAttributes(target: Instance, state: {[string]: any})
 	end
 end
 
+local function getStateString(state: {[string]: any}): string?
+	local rawState = state.st
+	if typeof(rawState) ~= "string" then
+		return nil
+	end
+	return rawState
+end
+
 function MobReplicationController:_warnMissingTemplateOnce(zoneId: string, mobDefId: string)
 	local warnKey = string.format("%s::%s", zoneId, mobDefId)
 	if self._warnedMissingTemplateByKey[warnKey] == true then
@@ -262,6 +272,10 @@ function MobReplicationController:_destroyVisual(mobId: string)
 	local existing = self._mobVisualById[mobId]
 	if existing == nil then
 		return
+	end
+
+	if existing.AnimationPlayer ~= nil then
+		existing.AnimationPlayer:Destroy()
 	end
 
 	if existing.Part ~= nil then
@@ -335,16 +349,19 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 	local baseFacingXZ = DEFAULT_FACING_XZ
 	local baseRotation = CFrame.new()
 	local baseYaw = yawFromFacingXZ(baseFacingXZ)
+	local animationPlayer = nil
 	if model ~= nil then
 		local modelPivot = model:GetPivot()
 		baseRotation = modelPivot - modelPivot.Position
 		baseFacingXZ = resolveBaseFacingFromModel(model, baseRotation)
 		baseYaw = yawFromFacingXZ(baseFacingXZ)
+		animationPlayer = MobAnimationPlayer.new(model)
 	end
 	local record: MobVisualRecord = {
 		Kind = kind,
 		Part = part,
 		Model = model,
+		AnimationPlayer = animationPlayer,
 		Revision = tonumber(addState.r) or 0,
 		ZoneId = zoneId,
 		MobDefId = mobDefId,
@@ -364,6 +381,10 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 	local target: Instance? = if record.Model ~= nil then record.Model else record.Part
 	if target ~= nil then
 		setCommonAttributes(target, addState)
+	end
+	local initialState = getStateString(addState)
+	if initialState ~= nil and record.AnimationPlayer ~= nil then
+		record.AnimationPlayer:ApplyState(initialState)
 	end
 
 	return record
@@ -399,6 +420,11 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 	local target: Instance? = if record.Model ~= nil then record.Model else record.Part
 	if target ~= nil then
 		setCommonAttributes(target, state)
+	end
+
+	local brainState = getStateString(state)
+	if brainState ~= nil and record.AnimationPlayer ~= nil then
+		record.AnimationPlayer:ApplyState(brainState)
 	end
 end
 
