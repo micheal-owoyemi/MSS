@@ -1565,7 +1565,15 @@ function MobService:_isRoamStepPositionValid(record: MobRuntimeRecord, candidate
 	return true
 end
 
-function MobService:_isRoamDestinationValid(record: MobRuntimeRecord, candidateXZ: Vector2): boolean
+function MobService:_isRoamDestinationValid(record: MobRuntimeRecord, currentXZ: Vector2, candidateXZ: Vector2): boolean
+	local minTravelDistance = math.max(0, tonumber(self._config.RoamMinTravelDistanceStuds) or 0)
+	if minTravelDistance > 0 then
+		local travelDistance = (candidateXZ - currentXZ).Magnitude
+		if travelDistance < minTravelDistance then
+			return false
+		end
+	end
+
 	if not self:_isRoamStepPositionValid(record, candidateXZ) then
 		return false
 	end
@@ -1580,20 +1588,93 @@ function MobService:_isRoamDestinationValid(record: MobRuntimeRecord, candidateX
 	)
 end
 
-function MobService:_sampleRoamDestinationXZ(record: MobRuntimeRecord): Vector2?
-	local samplePointInZone = ZoneQueryHelper.SampleRandomPointXZInZone
-	if typeof(samplePointInZone) ~= "function" then
-		return nil
+function MobService:_getNearestAliveMobDistanceXZ(record: MobRuntimeRecord, candidateXZ: Vector2): number
+	local zoneSet = self._mobIdsByZone[record.ZoneId]
+	if zoneSet == nil then
+		return math.huge
 	end
 
-	for _ = 1, self._config.RoamDestinationSampleAttempts do
-		local candidateXZ = samplePointInZone(record.ZoneId, self._rng, self._config.RoamDestinationInsetStuds)
-		if candidateXZ ~= nil and self:_isRoamDestinationValid(record, candidateXZ) then
-			return candidateXZ
+	local nearestDistanceSq = math.huge
+	for mobId in pairs(zoneSet) do
+		if mobId ~= record.MobId then
+			local otherRecord = self._mobById[mobId]
+			if otherRecord ~= nil and otherRecord.ClientState.Alive == true then
+				local delta = candidateXZ - otherRecord.ServerState.PositionXZ
+				local distanceSq = delta:Dot(delta)
+				if distanceSq > 1e-6 and distanceSq < nearestDistanceSq then
+					nearestDistanceSq = distanceSq
+				end
+			end
 		end
 	end
 
-	return nil
+	if nearestDistanceSq == math.huge then
+		return math.huge
+	end
+
+	return math.sqrt(nearestDistanceSq)
+end
+
+function MobService:_sampleLocalRoamDestinationXZ(record: MobRuntimeRecord, currentXZ: Vector2): Vector2?
+	local minTravel = math.max(0, tonumber(self._config.RoamMinTravelDistanceStuds) or 0)
+	local maxTravel = math.max(minTravel, tonumber(self._config.RoamMaxTravelDistanceStuds) or minTravel)
+	if maxTravel <= 0 then
+		return nil
+	end
+
+	local angle = self._rng:NextNumber(0, math.pi * 2)
+	local distance = self._rng:NextNumber(minTravel, maxTravel)
+	local offset = Vector2.new(math.cos(angle), math.sin(angle)) * distance
+	local candidate = currentXZ + offset
+
+	local clampXZToZone = ZoneQueryHelper.ClampXZToZone
+	if typeof(clampXZToZone) == "function" then
+		return clampXZToZone(candidate, record.ZoneId, self._config.RoamDestinationInsetStuds)
+	end
+
+	return candidate
+end
+
+function MobService:_scoreRoamDestinationXZ(record: MobRuntimeRecord, currentXZ: Vector2, candidateXZ: Vector2): number
+	local travelDistance = (candidateXZ - currentXZ).Magnitude
+	local maxTravel = math.max(1, tonumber(self._config.RoamMaxTravelDistanceStuds) or 1)
+	local travelScore = math.clamp(travelDistance / maxTravel, 0, 1)
+
+	local nearestMobDistance = self:_getNearestAliveMobDistanceXZ(record, candidateXZ)
+	local desiredPeerDistance = math.max(1, (tonumber(self._config.RoamSeparationRadius) or 0) * 2)
+	local peerSpacingScore = math.clamp(nearestMobDistance / desiredPeerDistance, 0, 1.5)
+
+	local randomNoise = self._rng:NextNumber(0, 0.2)
+	return (peerSpacingScore * 1.5) + (travelScore * 0.75) + randomNoise
+end
+
+function MobService:_sampleRoamDestinationXZ(record: MobRuntimeRecord, currentXZ: Vector2): Vector2?
+	local samplePointInZone = ZoneQueryHelper.SampleRandomPointXZInZone
+	local attemptCount = math.max(1, math.floor(tonumber(self._config.RoamDestinationSampleAttempts) or 1))
+	local localBias = math.clamp(tonumber(self._config.RoamLocalDestinationBias) or 0, 0, 1)
+
+	local bestCandidate: Vector2? = nil
+	local bestScore = -math.huge
+
+	for _ = 1, attemptCount do
+		local candidateXZ: Vector2? = nil
+		if self._rng:NextNumber() <= localBias then
+			candidateXZ = self:_sampleLocalRoamDestinationXZ(record, currentXZ)
+		end
+		if candidateXZ == nil and typeof(samplePointInZone) == "function" then
+			candidateXZ = samplePointInZone(record.ZoneId, self._rng, self._config.RoamDestinationInsetStuds)
+		end
+
+		if candidateXZ ~= nil and self:_isRoamDestinationValid(record, currentXZ, candidateXZ) then
+			local score = self:_scoreRoamDestinationXZ(record, currentXZ, candidateXZ)
+			if score > bestScore then
+				bestScore = score
+				bestCandidate = candidateXZ
+			end
+		end
+	end
+
+	return bestCandidate
 end
 
 function MobService:_getLocalSeparationOffsetXZ(record: MobRuntimeRecord, currentXZ: Vector2): Vector2?
@@ -1657,8 +1738,8 @@ function MobService:_stepRoam(record: MobRuntimeRecord, now: number, dt: number)
 		MoveDurationMax = self._config.RoamMoveDurationMaxSeconds,
 		ArriveDistance = self._config.RoamArrivalDistanceStuds,
 		Rng = self._rng,
-		SampleDestination = function(_currentXZ: Vector2)
-			return self:_sampleRoamDestinationXZ(record)
+		SampleDestination = function(currentXZ: Vector2)
+			return self:_sampleRoamDestinationXZ(record, currentXZ)
 		end,
 		IsValidPosition = function(candidateXZ: Vector2)
 			return self:_isRoamStepPositionValid(record, candidateXZ)

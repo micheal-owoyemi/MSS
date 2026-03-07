@@ -47,6 +47,9 @@ export type Config = {
 	RoamArrivalDistanceStuds: number,
 	RoamDestinationSampleAttempts: number,
 	RoamDestinationInsetStuds: number,
+	RoamLocalDestinationBias: number,
+	RoamMinTravelDistanceStuds: number,
+	RoamMaxTravelDistanceStuds: number,
 	RoamCollisionRadius: number,
 	RoamCollisionHeight: number,
 	RoamSeparationRadius: number,
@@ -71,8 +74,11 @@ local Config: Config = {
 	RoamMoveDurationMinSeconds = 5, -- Minimum time roaming before forcing idle again.
 	RoamMoveDurationMaxSeconds = 10, -- Maximum time roaming before forcing idle again.
 	RoamArrivalDistanceStuds = 1.5, -- Consider destination reached within this radius.
-	RoamSeparationRadius = 6, -- Nearby-mob separation influence radius while roaming.
-	RoamSeparationWeight = 0.75, -- Strength of separation steering.
+	RoamLocalDestinationBias = 0.75, -- Chance to sample a destination around current position instead of zone-wide random.
+	RoamMinTravelDistanceStuds = 10, -- Minimum distance for a new roam destination from current position.
+	RoamMaxTravelDistanceStuds = 42, -- Maximum preferred local roam hop distance before falling back to zone-wide sampling.
+	RoamSeparationRadius = 10, -- Nearby-mob separation influence radius while roaming.
+	RoamSeparationWeight = 1.15, -- Strength of separation steering.
 
 	-- OFTEN TWEAKED (spawn density / roam collision behavior)
 	DefaultMaxMobsPerZone = 3, -- Fallback max mobs when zone data does not provide MaxMobs.
@@ -87,7 +93,7 @@ local Config: Config = {
 	SpawnZoneInsetStuds = 4, -- Inset from zone edge while sampling spawn points.
 	SpawnCollisionRadius = 2.5, -- Spawn collision check radius.
 	SpawnCollisionHeight = 6, -- Spawn collision check height.
-	RoamDestinationSampleAttempts = 10, -- Destination sampling attempts each roam cycle.
+	RoamDestinationSampleAttempts = 20, -- Destination sampling attempts each roam cycle (higher = less clustering, more CPU).
 	RoamDestinationInsetStuds = 4, -- Inset from zone edge while sampling roam destinations.
 	RoamCollisionRadius = 2.25, -- Roam step collision check radius.
 	RoamCollisionHeight = 6, -- Roam step collision check height.
