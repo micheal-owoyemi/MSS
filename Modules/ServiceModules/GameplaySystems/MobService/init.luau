@@ -33,8 +33,11 @@ type RewardServiceLike = {
 }
 
 type GameplayManagerServiceLike = {
+	Now: (self: GameplayManagerServiceLike) -> number,
 	RegisterSystem: (self: GameplayManagerServiceLike, name: string, system: {[string]: any}) -> (),
 	UnregisterSystem: (self: GameplayManagerServiceLike, name: string) -> (),
+	ScheduleAt: (self: GameplayManagerServiceLike, key: string, atTime: number, fn: () -> ()) -> (),
+	Cancel: (self: GameplayManagerServiceLike, key: string) -> (),
 }
 
 type MobClientState = {
@@ -60,6 +63,7 @@ type MobServerState = {
 	PositionXZ: Vector2,
 	FacingXZ: Vector2,
 	GroundY: number,
+	SpawnFailureCount: number,
 	RoamState: "Idle" | "RoamMove",
 	RoamStateUntil: number,
 	RoamDestinationXZ: Vector2?,
@@ -80,7 +84,7 @@ type MobRuntimeRecord = {
 	ClientState: MobClientState,
 	ServerState: MobServerState,
 	Attackers: {[Player]: true},
-	RespawnToken: {[string]: any}?,
+	RespawnScheduleKey: string?,
 	ResolvingDeath: boolean,
 	Janitor: any,
 }
@@ -91,6 +95,10 @@ local MobService = Knit.CreateService({
 		MobStateDelta = Knit.CreateSignal(),
 	},
 })
+
+function MobService.Client:ReportClientRenderDebug(player: Player, payload: {[string]: any})
+	return self.Server:_reportClientRenderDebug(player, payload)
+end
 
 local function resolveCharacterHumanoid(player: Player): Humanoid?
 	local character = player.Character
@@ -259,6 +267,67 @@ local function buildFallbackSpawnPointsFromBounds(
 	return output
 end
 
+local function buildGridSpawnPointsFromBounds(
+	bounds: {[string]: any},
+	maxCount: number,
+	insetStuds: number,
+	heightOffset: number
+): {Vector3}
+	if typeof(bounds) ~= "table" or typeof(bounds.Min) ~= "Vector3" or typeof(bounds.Max) ~= "Vector3" then
+		return {}
+	end
+
+	local count = math.max(0, math.floor(maxCount))
+	if count <= 0 then
+		return {}
+	end
+
+	local minimum: Vector3 = bounds.Min
+	local maximum: Vector3 = bounds.Max
+	local spanX = math.max(0, maximum.X - minimum.X)
+	local spanZ = math.max(0, maximum.Z - minimum.Z)
+	local insetX = math.clamp(insetStuds, 0, spanX * 0.45)
+	local insetZ = math.clamp(insetStuds, 0, spanZ * 0.45)
+	local minX = minimum.X + insetX
+	local maxX = maximum.X - insetX
+	local minZ = minimum.Z + insetZ
+	local maxZ = maximum.Z - insetZ
+	local y = minimum.Y + heightOffset
+
+	if minX > maxX then
+		local centerX = (minimum.X + maximum.X) * 0.5
+		minX = centerX
+		maxX = centerX
+	end
+	if minZ > maxZ then
+		local centerZ = (minimum.Z + maximum.Z) * 0.5
+		minZ = centerZ
+		maxZ = centerZ
+	end
+
+	local columns = math.max(1, math.ceil(math.sqrt(count)))
+	local rows = math.max(1, math.ceil(count / columns))
+	local stepX = if columns > 1 then (maxX - minX) / (columns - 1) else 0
+	local stepZ = if rows > 1 then (maxZ - minZ) / (rows - 1) else 0
+
+	local output: {Vector3} = table.create(count)
+	for row = 0, rows - 1 do
+		for col = 0, columns - 1 do
+			if #output >= count then
+				break
+			end
+			local x = minX + (stepX * col)
+			local z = minZ + (stepZ * row)
+			table.insert(output, Vector3.new(x, y, z))
+		end
+		if #output >= count then
+			break
+		end
+	end
+
+	return output
+end
+
 function MobService:KnitInit()
 	self._config = Config
 	self._mobDefs = MobDefs
@@ -277,6 +346,14 @@ function MobService:KnitInit()
 	self._replicationAccumulator = 0
 	self._positionThresholdSquared = Config.PositionChangeThresholdStuds * Config.PositionChangeThresholdStuds
 	self._warnedNoSpawnPointsByZone = {} :: {[string]: true}
+	self._spawnQueue = {} :: {[number]: MobRuntimeRecord}
+	self._spawnQueueHead = 1
+	self._spawnQueueTail = 0
+	self._spawnQueueByMobId = {} :: {[string]: true}
+	self._zonePopulationById = {} :: {[string]: number}
+	self._lastZonePopulationRefreshAt = 0
+	self._lastSpawnDebugPrintAt = 0
+	self._lastClientRenderReportAtByUserId = {} :: {[number]: number}
 
 	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
@@ -329,11 +406,224 @@ end
 
 function MobService:_onPlayerAdded(player: Player)
 	self._replicationBuffer:ResetPlayer(player.UserId)
+	self._lastZonePopulationRefreshAt = 0
 end
 
 function MobService:_onPlayerRemoving(player: Player)
 	self:_clearPlayerAsAttacker(player)
 	self._replicationBuffer:ResetPlayer(player.UserId)
+	self._lastZonePopulationRefreshAt = 0
+	self._lastClientRenderReportAtByUserId[player.UserId] = nil
+end
+
+function MobService:_reportClientRenderDebug(player: Player, payload: {[string]: any}): boolean
+	if self._config.DebugClientRenderReportEnabled ~= true then
+		return false
+	end
+	if not ValidationUtil.isPlayer(player) then
+		return false
+	end
+	if typeof(payload) ~= "table" then
+		return false
+	end
+
+	local now = os.clock()
+	local interval = math.max(0.1, tonumber(self._config.DebugClientRenderReportIntervalSeconds) or 1)
+	local lastPrinted = self._lastClientRenderReportAtByUserId[player.UserId] or 0
+	if (now - lastPrinted) < interval then
+		return true
+	end
+	self._lastClientRenderReportAtByUserId[player.UserId] = now
+
+	local function asCount(key: string): number
+		local value = tonumber(payload[key]) or 0
+		if not ValidationUtil.isFiniteNumber(value) then
+			return 0
+		end
+		return math.max(0, math.floor(value))
+	end
+	local phase = if typeof(payload.phase) == "string" then (payload.phase :: string) else "tick"
+
+	print(string.format(
+		"[MobService][ClientRenderDebug] player=%s(%d) phase=%s proxies=%d mobsClient=%d visuals=%d liveVisuals=%d pending=%d reconciled=%d staleRemoved=%d orphaned=%d droppedPending=%d invalidProxies=%d",
+		player.Name,
+		player.UserId,
+		phase,
+		asCount("proxies"),
+		asCount("mobsClientFolder"),
+		asCount("visuals"),
+		asCount("liveVisuals"),
+		asCount("pending"),
+		asCount("reconciledAdds"),
+		asCount("removedStale"),
+		asCount("orphaned"),
+		asCount("droppedPending"),
+		asCount("invalidProxies")
+	))
+
+	return true
+end
+
+function MobService:_respawnScheduleKey(mobId: string): string
+	return string.format("mob_respawn_%s", mobId)
+end
+
+function MobService:_enqueueSpawn(record: MobRuntimeRecord)
+	if record.Janitor == nil then
+		return
+	end
+	if self._spawnQueueByMobId[record.MobId] == true then
+		return
+	end
+
+	self._spawnQueueTail += 1
+	self._spawnQueue[self._spawnQueueTail] = record
+	self._spawnQueueByMobId[record.MobId] = true
+end
+
+function MobService:_dequeueSpawn(): MobRuntimeRecord?
+	if self._spawnQueueHead > self._spawnQueueTail then
+		self._spawnQueueHead = 1
+		self._spawnQueueTail = 0
+		return nil
+	end
+
+	local index = self._spawnQueueHead
+	local record = self._spawnQueue[index]
+	self._spawnQueue[index] = nil
+	self._spawnQueueHead += 1
+
+	if self._spawnQueueHead > self._spawnQueueTail then
+		self._spawnQueueHead = 1
+		self._spawnQueueTail = 0
+	end
+
+	if record ~= nil then
+		self._spawnQueueByMobId[record.MobId] = nil
+	end
+	return record
+end
+
+function MobService:_processSpawnQueue(_now: number)
+	local hasActiveZone = false
+	for _, count in pairs(self._zonePopulationById) do
+		if count > 0 then
+			hasActiveZone = true
+			break
+		end
+	end
+	if not hasActiveZone then
+		return
+	end
+
+	local maxOps = math.max(1, self._config.SpawnMaxOperationsPerSimulationStep)
+	local queueSize = math.max(0, self._spawnQueueTail - self._spawnQueueHead + 1)
+	local attempts = 0
+	local processed = 0
+	local maxAttempts = math.max(queueSize, maxOps)
+
+	while processed < maxOps and attempts < maxAttempts do
+		local record = self:_dequeueSpawn()
+		if record == nil then
+			break
+		end
+		attempts += 1
+		if record.Janitor == nil then
+			continue
+		end
+		if self._mobById[record.MobId] ~= record then
+			continue
+		end
+		if record.ClientState.Alive == true then
+			continue
+		end
+		if (self._zonePopulationById[record.ZoneId] or 0) <= 0 then
+			self:_enqueueSpawn(record)
+			continue
+		end
+
+		processed += 1
+		local spawned, spawnReason = self:_spawnMob(record)
+		if not spawned then
+			record.ServerState.SpawnFailureCount += 1
+			warn(string.format("[MobService] Spawn failed for %s: %s", record.MobId, tostring(spawnReason)))
+			self:_scheduleRespawn(record, self._config.RespawnFailureRetrySeconds)
+		end
+	end
+end
+
+function MobService:_refreshZonePopulation(now: number)
+	local refreshInterval = math.max(0.05, tonumber(self._config.ZonePopulationRefreshIntervalSeconds) or 0.2)
+	if (now - self._lastZonePopulationRefreshAt) < refreshInterval then
+		return
+	end
+
+	self._lastZonePopulationRefreshAt = now
+	table.clear(self._zonePopulationById)
+
+	local zoneService = self._zoneService
+	if zoneService == nil then
+		return
+	end
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		local zoneId, _ = zoneService:GetPlayerZone(player)
+		if ValidationUtil.isNonEmptyString(zoneId) then
+			local key = zoneId :: string
+			self._zonePopulationById[key] = (self._zonePopulationById[key] or 0) + 1
+		end
+	end
+end
+
+function MobService:_debugPrintSpawnProgress(now: number)
+	if self._config.DebugSpawnProgressEnabled ~= true then
+		return
+	end
+
+	local interval = math.max(0.1, tonumber(self._config.DebugSpawnProgressIntervalSeconds) or 1)
+	if (now - self._lastSpawnDebugPrintAt) < interval then
+		return
+	end
+	self._lastSpawnDebugPrintAt = now
+
+	local queuedByZone: {[string]: number} = {}
+	for index = self._spawnQueueHead, self._spawnQueueTail do
+		local record = self._spawnQueue[index]
+		if record ~= nil then
+			local zoneId = record.ZoneId
+			queuedByZone[zoneId] = (queuedByZone[zoneId] or 0) + 1
+		end
+	end
+
+	local zoneIds: {string} = {}
+	for zoneId in pairs(self._mobIdsByZone) do
+		table.insert(zoneIds, zoneId)
+	end
+	table.sort(zoneIds)
+
+	for _, zoneId in ipairs(zoneIds) do
+		local zoneSet = self._mobIdsByZone[zoneId]
+		local targetSlots = 0
+		local alive = 0
+		if zoneSet ~= nil then
+			for mobId in pairs(zoneSet) do
+				targetSlots += 1
+				local record = self._mobById[mobId]
+				if record ~= nil and record.ClientState.Alive == true then
+					alive += 1
+				end
+			end
+		end
+
+		local queued = queuedByZone[zoneId] or 0
+		print(string.format(
+			"[MobService][SpawnDebug] zone=%s targetSlots=%d alive=%d queued=%d",
+			zoneId,
+			targetSlots,
+			alive,
+			queued
+		))
+	end
 end
 
 function MobService:_registerMobInZone(zoneId: string, mobId: string)
@@ -644,6 +934,22 @@ function MobService:_isPositionBlocked(zoneId: string, position: Vector3, radius
 	return MapCollisionHelper.IsPositionObstructed(zoneId, position, radius, height)
 end
 
+function MobService:_resolveDynamicSpawnSeparation(record: MobRuntimeRecord): number
+	local baseSeparation = math.max(0, tonumber(self._config.SpawnMinSeparationStuds) or 0)
+	local failureCount = math.max(0, math.floor(tonumber(record.ServerState.SpawnFailureCount) or 0))
+	local ignoreAfter = math.max(0, math.floor(tonumber(self._config.SpawnIgnoreSeparationAfterFailures) or 0))
+	if ignoreAfter > 0 and failureCount >= ignoreAfter then
+		return 0
+	end
+
+	local relaxStart = math.max(0, math.floor(tonumber(self._config.SpawnSeparationRelaxStartFailures) or 0))
+	local relaxPerFailure = math.max(0, tonumber(self._config.SpawnSeparationRelaxPerFailureStuds) or 0)
+	local floorSeparation = math.max(0, tonumber(self._config.SpawnMinSeparationFloorStuds) or 0)
+	local relaxedFailures = math.max(0, failureCount - relaxStart + 1)
+	local resolved = baseSeparation - (relaxedFailures * relaxPerFailure)
+	return math.max(floorSeparation, resolved)
+end
+
 function MobService:_isSpawnPositionValid(
 	zoneId: string,
 	position: Vector3,
@@ -695,9 +1001,24 @@ function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[strin
 		return {}
 	end
 
-	local spawnOrigins = {}
-	local minimumSeparation = math.max(0, self._config.SpawnMinSeparationStuds)
+	local spawnOrigins = table.create(maxMobs) :: {Vector3}
+	local seenByKey: {[string]: true} = {}
 	local groundY = self:_resolveZoneGroundY(zoneId, self._config.FallbackSpawnHeightOffset)
+
+	local function addOrigin(point: Vector3, allowDuplicate: boolean?)
+		if #spawnOrigins >= maxMobs then
+			return
+		end
+		local normalized = Vector3.new(point.X, groundY, point.Z)
+		if allowDuplicate ~= true then
+			local key = string.format("%.2f|%.2f", normalized.X, normalized.Z)
+			if seenByKey[key] == true then
+				return
+			end
+			seenByKey[key] = true
+		end
+		table.insert(spawnOrigins, normalized)
+	end
 
 	if typeof(zoneDef) == "table" and typeof(zoneDef.SpawnPoints) == "table" then
 		for _, spawnOrigin in ipairs(zoneDef.SpawnPoints) do
@@ -705,24 +1026,9 @@ function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[strin
 				break
 			end
 			if typeof(spawnOrigin) == "Vector3" then
-				local normalized = Vector3.new(spawnOrigin.X, groundY, spawnOrigin.Z)
-				if self:_isSpawnPositionValid(zoneId, normalized, minimumSeparation, nil, spawnOrigins) then
-					table.insert(spawnOrigins, normalized)
-				end
+				addOrigin(spawnOrigin, false)
 			end
 		end
-	end
-
-	while #spawnOrigins < maxMobs do
-		local sampled = self:_sampleSpawnPositionForZone(zoneId, groundY, minimumSeparation, nil, spawnOrigins)
-		if sampled == nil then
-			break
-		end
-		table.insert(spawnOrigins, sampled)
-	end
-
-	if #spawnOrigins > 0 then
-		return spawnOrigins
 	end
 
 	local markerBounds: {[string]: any}? = nil
@@ -744,21 +1050,51 @@ function MobService:_resolveSpawnOriginsForZone(zoneId: string, zoneDef: {[strin
 		return spawnOrigins
 	end
 
-	local fallbackOrigins = buildFallbackSpawnPointsFromBounds(
+	local gridOrigins = buildGridSpawnPointsFromBounds(
 		markerBounds,
-		math.max(1, math.min(maxMobs, self._config.FallbackSpawnPointsPerZone)),
+		maxMobs,
 		math.max(0, self._config.FallbackSpawnInsetStuds),
 		self._config.FallbackSpawnHeightOffset
 	)
-	for _, fallbackOrigin in ipairs(fallbackOrigins) do
-		local normalized = Vector3.new(fallbackOrigin.X, groundY, fallbackOrigin.Z)
-		if self:_isSpawnPositionValid(zoneId, normalized, minimumSeparation, nil, spawnOrigins) then
-			table.insert(spawnOrigins, normalized)
+	for _, origin in ipairs(gridOrigins) do
+		addOrigin(origin, true)
+		if #spawnOrigins >= maxMobs then
+			break
+		end
+	end
+
+	if #spawnOrigins == 0 then
+		local fallbackOrigins = buildFallbackSpawnPointsFromBounds(
+			markerBounds,
+			math.max(1, math.min(maxMobs, self._config.FallbackSpawnPointsPerZone)),
+			math.max(0, self._config.FallbackSpawnInsetStuds),
+			self._config.FallbackSpawnHeightOffset
+		)
+		for _, origin in ipairs(fallbackOrigins) do
+			addOrigin(origin, true)
 			if #spawnOrigins >= maxMobs then
 				break
 			end
 		end
 	end
+
+	if #spawnOrigins < maxMobs then
+		local samplePointInZone = ZoneQueryHelper.SampleRandomPointXZInZone
+		if typeof(samplePointInZone) == "function" then
+			local remaining = maxMobs - #spawnOrigins
+			local attempts = math.max(remaining * 3, remaining)
+			for _ = 1, attempts do
+				local sampledXZ = samplePointInZone(zoneId, self._rng, self._config.SpawnZoneInsetStuds)
+				if sampledXZ ~= nil then
+					addOrigin(vector3FromXZ(sampledXZ, groundY), true)
+					if #spawnOrigins >= maxMobs then
+						break
+					end
+				end
+			end
+		end
+	end
+
 	if #spawnOrigins == 0 and self._warnedNoSpawnPointsByZone[zoneId] == nil then
 		self._warnedNoSpawnPointsByZone[zoneId] = true
 		warn(string.format("[MobService] Unable to resolve valid spawn points for zone '%s'", zoneId))
@@ -790,6 +1126,7 @@ function MobService:_initializeSpawnSlots()
 									PositionXZ = vector2FromVector3(spawnOrigin),
 									FacingXZ = Vector2.new(0, -1),
 									GroundY = spawnOrigin.Y,
+									SpawnFailureCount = 0,
 									RoamState = "Idle",
 									RoamStateUntil = 0,
 									RoamDestinationXZ = nil,
@@ -799,7 +1136,7 @@ function MobService:_initializeSpawnSlots()
 									RespawnAt = nil,
 								},
 							Attackers = {},
-							RespawnToken = nil,
+							RespawnScheduleKey = nil,
 							ResolvingDeath = false,
 							Janitor = recordJanitor,
 						}
@@ -816,17 +1153,13 @@ function MobService:_initializeSpawnSlots()
 							end
 							self:_clearAllAttackers(record)
 							self:_unregisterMobFromZone(record.ZoneId, record.MobId)
+							self._spawnQueueByMobId[record.MobId] = nil
 							self._mobById[mobId] = nil
 						end)
 
 						self._mobById[mobId] = record
 						self:_registerMobInZone(zoneId, mobId)
-
-						local spawned, spawnReason = self:_spawnMob(record)
-						if not spawned then
-							warn(string.format("[MobService] Initial spawn failed for %s: %s", mobId, tostring(spawnReason)))
-							self:_scheduleRespawn(record, self._config.RespawnFailureRetrySeconds)
-						end
+						self:_enqueueSpawn(record)
 					end
 				end
 			end
@@ -915,10 +1248,11 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 
 	local mobDef = sanitizeMobDef(rawMobDef, self._config)
 	local spawnPosition = record.ServerState.SpawnOrigin
+	local minimumSeparation = self:_resolveDynamicSpawnSeparation(record)
 	if not self:_isSpawnPositionValid(
 		record.ZoneId,
 		spawnPosition,
-		self._config.SpawnMinSeparationStuds,
+		minimumSeparation,
 		record.MobId,
 		nil
 	) then
@@ -926,7 +1260,7 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 		local sampledSpawn = self:_sampleSpawnPositionForZone(
 			record.ZoneId,
 			groundY,
-			self._config.SpawnMinSeparationStuds,
+			minimumSeparation,
 			record.MobId,
 			nil
 		)
@@ -976,6 +1310,7 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 	record.Model = model
 	record.ResolvingDeath = false
 	record.ServerState.RespawnAt = nil
+	record.ServerState.SpawnFailureCount = 0
 
 	record.Brain = MobBrain.new({
 		MobId = record.MobId,
@@ -1009,37 +1344,50 @@ function MobService:_spawnMob(record: MobRuntimeRecord): (boolean, string?)
 end
 
 function MobService:_cancelRespawn(record: MobRuntimeRecord)
-	local token = record.RespawnToken
-	if token ~= nil then
-		token.Cancelled = true
-		record.RespawnToken = nil
+	local scheduleKey = record.RespawnScheduleKey
+	if scheduleKey ~= nil then
+		local gameplayManager = self._gameplayManager
+		if gameplayManager ~= nil then
+			pcall(function()
+				gameplayManager:Cancel(scheduleKey)
+			end)
+		end
+		record.RespawnScheduleKey = nil
 	end
+	record.ServerState.RespawnAt = nil
 end
 
 function MobService:_scheduleRespawn(record: MobRuntimeRecord, delaySeconds: number)
 	self:_cancelRespawn(record)
 
 	local resolvedDelay = math.max(0.1, delaySeconds)
-	local token = {
-		Cancelled = false,
-	}
-	record.RespawnToken = token
-	record.ServerState.RespawnAt = os.clock() + resolvedDelay
+	local gameplayManager = self._gameplayManager
+	local now = if gameplayManager ~= nil then gameplayManager:Now() else os.clock()
+	local dueAt = now + resolvedDelay
+	record.ServerState.RespawnAt = dueAt
 
-	task.delay(resolvedDelay, function()
-		if token.Cancelled then
+	local scheduleKey = self:_respawnScheduleKey(record.MobId)
+	record.RespawnScheduleKey = scheduleKey
+
+	if gameplayManager == nil then
+		task.delay(resolvedDelay, function()
+			if record.RespawnScheduleKey ~= scheduleKey then
+				return
+			end
+			record.RespawnScheduleKey = nil
+			record.ServerState.RespawnAt = nil
+			self:_enqueueSpawn(record)
+		end)
+		return
+	end
+
+	gameplayManager:ScheduleAt(scheduleKey, dueAt, function()
+		if record.RespawnScheduleKey ~= scheduleKey then
 			return
 		end
-		if record.Janitor == nil then
-			return
-		end
-
-		record.RespawnToken = nil
-		local spawned, reason = self:_spawnMob(record)
-		if not spawned then
-			warn(string.format("[MobService] Respawn failed for %s: %s", record.MobId, tostring(reason)))
-			self:_scheduleRespawn(record, self._config.RespawnFailureRetrySeconds)
-		end
+		record.RespawnScheduleKey = nil
+		record.ServerState.RespawnAt = nil
+		self:_enqueueSpawn(record)
 	end)
 end
 
@@ -1358,6 +1706,9 @@ function MobService:StepMobSimulation(now: number, dt: number)
 	while self._simulationAccumulator >= stepInterval and steps < self._config.MaxSimulationStepsPerTick do
 		self._simulationAccumulator -= stepInterval
 		local stepNow = now - self._simulationAccumulator
+		self:_refreshZonePopulation(stepNow)
+		self:_processSpawnQueue(stepNow)
+		self:_debugPrintSpawnProgress(stepNow)
 
 		for _, record in pairs(self._mobById) do
 			if record.ClientState.Alive then
@@ -1625,6 +1976,13 @@ function MobService:Destroy()
 	table.clear(self._mobById)
 	table.clear(self._mobIdsByZone)
 	table.clear(self._attackerMobIdsByUserId)
+	table.clear(self._spawnQueue)
+	table.clear(self._spawnQueueByMobId)
+	table.clear(self._zonePopulationById)
+	self._spawnQueueHead = 1
+	self._spawnQueueTail = 0
+	self._lastZonePopulationRefreshAt = 0
+	self._lastSpawnDebugPrintAt = 0
 end
 
 return MobService

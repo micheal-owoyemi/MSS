@@ -45,6 +45,17 @@ local MobReplicationController = Knit.CreateController({
 	Name = "MobReplicationController",
 })
 
+local function resolvePath(root: Instance, segments: {string}): Instance?
+	local cursor: Instance? = root
+	for _, segment in ipairs(segments) do
+		if cursor == nil then
+			return nil
+		end
+		cursor = cursor:FindFirstChild(segment)
+	end
+	return cursor
+end
+
 local function ensurePath(root: Instance, segments: {string}): Instance
 	local cursor: Instance = root
 	for _, segment in ipairs(segments) do
@@ -249,8 +260,14 @@ function MobReplicationController:KnitInit()
 	self._janitor = Janitor.new()
 	self._mobService = nil
 	self._mobVisualsFolder = nil :: Instance?
+	self._serverProxyFolder = nil :: Instance?
 	self._mobVisualById = {} :: {[string]: MobVisualRecord}
+	self._pendingAddByMobId = {} :: {[string]: {[string]: any}}
+	self._pendingAddQueue = {} :: {[number]: string}
+	self._pendingAddQueueHead = 1
+	self._pendingAddQueueTail = 0
 	self._lastPacketSequence = 0
+	self._lastDebugCompareAt = 0
 	self._warnedMissingTemplateByKey = {} :: {[string]: true}
 end
 
@@ -258,6 +275,20 @@ function MobReplicationController:KnitStart()
 	self._mobService = Knit.GetService("MobService")
 	local renderRootPath = if Config.RenderDebugSpheres then Config.SphereRenderRootPath else Config.ModelRenderRootPath
 	self._mobVisualsFolder = ensurePath(Workspace, renderRootPath)
+	self._serverProxyFolder = resolvePath(Workspace, Config.ServerProxyRootPath)
+	self:_reportClientRenderDebug({
+		phase = "start",
+		proxies = 0,
+		mobsClientFolder = 0,
+		visuals = 0,
+		liveVisuals = 0,
+		pending = 0,
+		reconciledAdds = 0,
+		removedStale = 0,
+		orphaned = 0,
+		droppedPending = 0,
+		invalidProxies = 0,
+	})
 
 	self._janitor:Add(self._mobService.MobStateDelta:Connect(function(packet: Packet)
 		self:_handlePacket(packet)
@@ -268,9 +299,21 @@ function MobReplicationController:KnitStart()
 	end), "Disconnect", "RenderSteppedConnection")
 end
 
+function MobReplicationController:_reportClientRenderDebug(payload: {[string]: any})
+	local mobService = self._mobService
+	if mobService == nil then
+		return
+	end
+
+	pcall(function()
+		mobService:ReportClientRenderDebug(payload)
+	end)
+end
+
 function MobReplicationController:_destroyVisual(mobId: string)
 	local existing = self._mobVisualById[mobId]
 	if existing == nil then
+		self._pendingAddByMobId[mobId] = nil
 		return
 	end
 
@@ -286,6 +329,71 @@ function MobReplicationController:_destroyVisual(mobId: string)
 	end
 
 	self._mobVisualById[mobId] = nil
+	self._pendingAddByMobId[mobId] = nil
+end
+
+function MobReplicationController:_enqueuePendingAdd(state: {[string]: any})
+	local mobId = state.id
+	if typeof(mobId) ~= "string" then
+		return
+	end
+
+	local existingState = self._pendingAddByMobId[mobId]
+	if existingState ~= nil then
+		for key, value in pairs(state) do
+			existingState[key] = value
+		end
+		return
+	end
+
+	self._pendingAddQueueTail += 1
+	self._pendingAddQueue[self._pendingAddQueueTail] = mobId
+	self._pendingAddByMobId[mobId] = state
+end
+
+function MobReplicationController:_dequeuePendingAddMobId(): string?
+	if self._pendingAddQueueHead > self._pendingAddQueueTail then
+		self._pendingAddQueueHead = 1
+		self._pendingAddQueueTail = 0
+		return nil
+	end
+
+	local index = self._pendingAddQueueHead
+	local mobId = self._pendingAddQueue[index]
+	self._pendingAddQueue[index] = nil
+	self._pendingAddQueueHead += 1
+	if self._pendingAddQueueHead > self._pendingAddQueueTail then
+		self._pendingAddQueueHead = 1
+		self._pendingAddQueueTail = 0
+	end
+	return mobId
+end
+
+function MobReplicationController:_processPendingAdds()
+	local budget = math.max(1, Config.MaxVisualCreatesPerFrame)
+	for _ = 1, budget do
+		local mobId = self:_dequeuePendingAddMobId()
+		if mobId == nil then
+			break
+		end
+
+		local addState = self._pendingAddByMobId[mobId]
+		self._pendingAddByMobId[mobId] = nil
+		if addState == nil then
+			continue
+		end
+
+		local alive = addState.al
+		if alive == false then
+			self:_destroyVisual(mobId)
+			continue
+		end
+
+		local record = self:_ensureVisual(addState)
+		if record ~= nil then
+			self:_applyState(record, addState)
+		end
+	end
 end
 
 function MobReplicationController:_createVisual(
@@ -428,7 +536,179 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 	end
 end
 
+function MobReplicationController:_resolveServerProxyFolder(): Instance?
+	local folder = self._serverProxyFolder
+	if folder ~= nil and folder.Parent ~= nil then
+		return folder
+	end
+
+	folder = resolvePath(Workspace, Config.ServerProxyRootPath)
+	self._serverProxyFolder = folder
+	return folder
+end
+
+function MobReplicationController:_countMapEntries(source: {[string]: any}): number
+	local count = 0
+	for _ in pairs(source) do
+		count += 1
+	end
+	return count
+end
+
+function MobReplicationController:_isVisualRenderable(record: MobVisualRecord): boolean
+	if record.Kind == "Sphere" then
+		return record.Part ~= nil and record.Part.Parent ~= nil
+	end
+	return record.Model ~= nil and record.Model.Parent ~= nil
+end
+
+function MobReplicationController:_buildProxyAddState(proxyModel: Model): {[string]: any}?
+	local mobId = proxyModel:GetAttribute("MobId")
+	local mobDefId = proxyModel:GetAttribute("MobDefId")
+	local zoneId = proxyModel:GetAttribute("ZoneId")
+	if typeof(mobId) ~= "string" or typeof(mobDefId) ~= "string" or typeof(zoneId) ~= "string" then
+		return nil
+	end
+
+	local pivot = proxyModel:GetPivot()
+	local position = pivot.Position
+	local hp = proxyModel:GetAttribute("HP")
+	local maxHp = proxyModel:GetAttribute("MaxHP")
+	local brainState = proxyModel:GetAttribute("BrainState")
+
+	local addState: {[string]: any} = {
+		id = mobId,
+		d = mobDefId,
+		z = zoneId,
+		xz = Vector2.new(position.X, position.Z),
+		gy = position.Y,
+		al = true,
+	}
+	if typeof(hp) == "number" then
+		addState.h = hp
+	end
+	if typeof(maxHp) == "number" then
+		addState.mh = maxHp
+	end
+	if typeof(brainState) == "string" then
+		addState.st = brainState
+	end
+	return addState
+end
+
+function MobReplicationController:_debugCompareAndReconcile()
+	if Config.DebugCompareMobsEnabled ~= true then
+		return
+	end
+
+	local now = os.clock()
+	local interval = math.max(0.1, Config.DebugCompareIntervalSeconds)
+	if (now - self._lastDebugCompareAt) < interval then
+		return
+	end
+	self._lastDebugCompareAt = now
+
+	local proxyFolder = self:_resolveServerProxyFolder()
+	local proxyAddByMobId: {[string]: {[string]: any}} = {}
+	local proxyCount = 0
+	local invalidProxyCount = 0
+	if proxyFolder ~= nil then
+		for _, child in ipairs(proxyFolder:GetChildren()) do
+			if child:IsA("Model") then
+				local addState = self:_buildProxyAddState(child)
+				if addState ~= nil then
+					local mobId = addState.id
+					if typeof(mobId) == "string" then
+						proxyAddByMobId[mobId] = addState
+						proxyCount += 1
+					end
+				else
+					invalidProxyCount += 1
+				end
+			end
+		end
+	end
+
+	local visualsCount = 0
+	local orphanedVisuals = 0
+	for mobId, record in pairs(self._mobVisualById) do
+		if self:_isVisualRenderable(record) then
+			visualsCount += 1
+		else
+			orphanedVisuals += 1
+			self:_destroyVisual(mobId)
+		end
+	end
+
+	local folderVisualCount = 0
+	local visualsFolder = self._mobVisualsFolder
+	if visualsFolder ~= nil and visualsFolder.Parent ~= nil then
+		for _, child in ipairs(visualsFolder:GetChildren()) do
+			if child:IsA("Model") or child:IsA("BasePart") then
+				folderVisualCount += 1
+			end
+		end
+	end
+
+	local reconciledAdds = 0
+	for mobId, addState in pairs(proxyAddByMobId) do
+		if self._mobVisualById[mobId] == nil and self._pendingAddByMobId[mobId] == nil then
+			self:_enqueuePendingAdd(addState)
+			reconciledAdds += 1
+		end
+	end
+
+	local removedStaleVisuals = 0
+	for mobId in pairs(self._mobVisualById) do
+		if proxyAddByMobId[mobId] == nil then
+			removedStaleVisuals += 1
+			self:_destroyVisual(mobId)
+		end
+	end
+
+	local droppedStalePending = 0
+	for mobId in pairs(self._pendingAddByMobId) do
+		if proxyAddByMobId[mobId] == nil then
+			droppedStalePending += 1
+			self._pendingAddByMobId[mobId] = nil
+		end
+	end
+
+	local pendingCount = self:_countMapEntries(self._pendingAddByMobId)
+	local liveVisualCount = self:_countMapEntries(self._mobVisualById)
+	print(string.format(
+		"[MobReplicationController][Compare] proxies=%d mobsClientFolder=%d visuals=%d liveVisuals=%d pending=%d reconciledAdds=%d removedStale=%d orphaned=%d droppedPending=%d invalidProxies=%d",
+		proxyCount,
+		folderVisualCount,
+		visualsCount,
+		liveVisualCount,
+		pendingCount,
+		reconciledAdds,
+		removedStaleVisuals,
+		orphanedVisuals,
+		droppedStalePending,
+		invalidProxyCount
+	))
+
+	self:_reportClientRenderDebug({
+		phase = "compare",
+		proxies = proxyCount,
+		mobsClientFolder = folderVisualCount,
+		visuals = visualsCount,
+		liveVisuals = liveVisualCount,
+		pending = pendingCount,
+		reconciledAdds = reconciledAdds,
+		removedStale = removedStaleVisuals,
+		orphaned = orphanedVisuals,
+		droppedPending = droppedStalePending,
+		invalidProxies = invalidProxyCount,
+	})
+end
+
 function MobReplicationController:_stepSmoothing(dt: number)
+	self:_processPendingAdds()
+	self:_debugCompareAndReconcile()
+
 	local alpha = 1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0))
 	alpha = math.clamp(alpha, Config.MinSmoothingAlpha, Config.MaxSmoothingAlpha)
 
@@ -490,10 +770,7 @@ function MobReplicationController:_handlePacket(packet: Packet)
 						self:_destroyVisual(mobId)
 					end
 				else
-					local record = self:_ensureVisual(addState)
-					if record ~= nil then
-						self:_applyState(record, addState)
-					end
+					self:_enqueuePendingAdd(addState)
 				end
 			end
 		end
@@ -511,6 +788,13 @@ function MobReplicationController:_handlePacket(packet: Packet)
 						local record = self._mobVisualById[mobId]
 						if record ~= nil then
 							self:_applyState(record, updateState)
+						else
+							local pendingState = self._pendingAddByMobId[mobId]
+							if pendingState ~= nil then
+								for key, value in pairs(updateState) do
+									pendingState[key] = value
+								end
+							end
 						end
 					end
 				end
@@ -526,6 +810,10 @@ function MobReplicationController:Destroy()
 	for mobId in pairs(self._mobVisualById) do
 		self:_destroyVisual(mobId)
 	end
+	table.clear(self._pendingAddByMobId)
+	table.clear(self._pendingAddQueue)
+	self._pendingAddQueueHead = 1
+	self._pendingAddQueueTail = 0
 	table.clear(self._warnedMissingTemplateByKey)
 end
 

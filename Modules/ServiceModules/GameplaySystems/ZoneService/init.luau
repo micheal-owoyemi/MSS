@@ -107,6 +107,9 @@ function ZoneService:KnitInit()
 	self._zoneCacheByUserId = {} :: {[number]: ZoneCacheRecord}
 	self._zoneDebugStateByUserId = {} :: {[number]: ZoneDebugState}
 	self._zoneDebugLoopToken = nil :: {}?
+	self._debugAutoTeleportedByUserId = {} :: {[number]: true}
+	self._debugAutoTeleportInFlightByUserId = {} :: {[number]: true}
+	self._debugAutoTeleportLoopToken = nil :: {}?
 end
 
 function ZoneService:KnitStart()
@@ -127,8 +130,21 @@ function ZoneService:KnitStart()
 
 		self._zoneCacheByUserId[player.UserId] = nil
 		self._zoneDebugStateByUserId[player.UserId] = nil
+		self._debugAutoTeleportInFlightByUserId[player.UserId] = nil
+		self._debugAutoTeleportedByUserId[player.UserId] = nil
 		self._teleportRateLimiter:ClearPlayer(player)
 	end), "Disconnect", "PlayerRemovingConnection")
+
+	self._serviceJanitor:Add(Players.PlayerAdded:Connect(function(player: Player)
+		self:_tryDebugAutoTeleportOnPlayerAdded(player)
+	end), "Disconnect", "DebugAutoTeleportPlayerAddedConnection")
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		self:_tryDebugAutoTeleportOnPlayerAdded(player)
+	end
+	if self._config.DebugAutoTeleportOnPlayerAddedEnabled == true then
+		self:_startDebugAutoTeleportLoop()
+	end
 
 	if self._config.ZoneDebugEnabled then
 		if self._config.ZoneDebugCreatePhysicalBounds then
@@ -136,6 +152,181 @@ function ZoneService:KnitStart()
 		end
 		self:_startZoneDebugLoop()
 	end
+end
+
+function ZoneService:_resolveDebugAutoTeleportDestination(): string?
+	local configuredZoneId = self._config.DebugAutoTeleportZoneId
+	if isValidZoneId(configuredZoneId, self._config.MaxZoneIdLength) and self:_zoneExists(configuredZoneId) then
+		return configuredZoneId
+	end
+
+	local zoneIds = {}
+	for zoneId in pairs(self._zoneDefs) do
+		if isValidZoneId(zoneId, self._config.MaxZoneIdLength) then
+			table.insert(zoneIds, zoneId)
+		end
+	end
+	table.sort(zoneIds)
+
+	for _, zoneId in ipairs(zoneIds) do
+		if self:_zoneExists(zoneId) then
+			return zoneId
+		end
+	end
+
+	return nil
+end
+
+function ZoneService:_requestDebugAutoTeleport(player: Player, zoneId: string): (boolean, string?)
+	local function tryForcedTeleport(): (boolean, string?)
+		if not self:_zoneExists(zoneId) then
+			return false, "UnknownZone"
+		end
+
+		local destination: Vector3? = nil
+		local bounds = ZoneQueryHelper.GetZoneBounds(zoneId, true)
+		if bounds ~= nil then
+			destination = Vector3.new(
+				(bounds.Min.X + bounds.Max.X) * 0.5,
+				bounds.Min.Y + self._config.TeleportArrivalHeightOffset,
+				(bounds.Min.Z + bounds.Max.Z) * 0.5
+			)
+		end
+
+		local destinationReason: string? = nil
+		if destination == nil then
+			destination, destinationReason = self:_resolveTeleportDestination(zoneId, self._config.DefaultTeleportId)
+		end
+		if destination == nil then
+			return false, destinationReason or "InvalidTeleportDestination"
+		end
+
+		local teleported, teleportReason = self:_teleportCharacter(player, destination)
+		if not teleported then
+			return false, teleportReason or "TeleportFailed"
+		end
+
+		self._zoneCacheByUserId[player.UserId] = nil
+		return true, nil
+	end
+
+	if self._config.DebugAutoTeleportBypassUnlock == true then
+		return tryForcedTeleport()
+	end
+
+	local teleported, reason = self:RequestTeleportToZone(player, zoneId)
+	if teleported then
+		return true, nil
+	end
+
+	local fallbackTeleported, fallbackReason = tryForcedTeleport()
+	if fallbackTeleported then
+		return true, nil
+	end
+
+	return false, fallbackReason or reason or "TeleportFailed"
+end
+
+function ZoneService:_tryDebugAutoTeleportOnPlayerAdded(player: Player)
+	if self._config.DebugAutoTeleportOnPlayerAddedEnabled ~= true then
+		return
+	end
+	if not ValidationUtil.isPlayer(player) then
+		return
+	end
+	if self._debugAutoTeleportedByUserId[player.UserId] == true then
+		return
+	end
+	if self._debugAutoTeleportInFlightByUserId[player.UserId] == true then
+		return
+	end
+
+	local targetZoneId = self:_resolveDebugAutoTeleportDestination()
+	if targetZoneId == nil then
+		warn("[ZoneService] Debug auto-teleport skipped: no valid destination zone")
+		return
+	end
+
+	self._debugAutoTeleportInFlightByUserId[player.UserId] = true
+
+	task.spawn(function()
+		local attempts = math.max(1, math.floor(tonumber(self._config.DebugAutoTeleportAttemptCount) or 1))
+		local retrySeconds = math.max(0.05, tonumber(self._config.DebugAutoTeleportRetrySeconds) or 0.5)
+		local initialDelay = math.max(0, tonumber(self._config.DebugAutoTeleportInitialDelaySeconds) or 0)
+		if initialDelay > 0 then
+			task.wait(initialDelay)
+		end
+
+		local success = false
+		local lastReason = "Unknown"
+		for attempt = 1, attempts do
+			if player.Parent ~= Players then
+				lastReason = "PlayerLeft"
+				break
+			end
+
+			local okTeleport, reason = self:_requestDebugAutoTeleport(player, targetZoneId)
+			if okTeleport then
+				success = true
+				self._debugAutoTeleportedByUserId[player.UserId] = true
+				print(string.format(
+					"[ZoneService] Debug auto-teleport success player=%s(%d) zone=%s attempt=%d",
+					player.Name,
+					player.UserId,
+					targetZoneId,
+					attempt
+				))
+				break
+			end
+
+			lastReason = tostring(reason)
+			if attempt < attempts then
+				task.wait(retrySeconds)
+			end
+		end
+
+		if not success and player.Parent == Players then
+			warn(string.format(
+				"[ZoneService] Debug auto-teleport failed player=%s(%d) zone=%s reason=%s",
+				player.Name,
+				player.UserId,
+				targetZoneId,
+				lastReason
+			))
+		end
+
+		self._debugAutoTeleportInFlightByUserId[player.UserId] = nil
+	end)
+end
+
+function ZoneService:_startDebugAutoTeleportLoop()
+	if self._config.DebugAutoTeleportOnPlayerAddedEnabled ~= true then
+		return
+	end
+	local existingToken = self._debugAutoTeleportLoopToken
+	if existingToken ~= nil then
+		return
+	end
+
+	local loopToken = {}
+	self._debugAutoTeleportLoopToken = loopToken
+	self._serviceJanitor:Add(function()
+		if self._debugAutoTeleportLoopToken == loopToken then
+			self._debugAutoTeleportLoopToken = nil
+		end
+	end, true, "DebugAutoTeleportLoopTokenCleanup")
+
+	task.spawn(function()
+		local interval = math.max(0.2, tonumber(self._config.DebugAutoTeleportLoopIntervalSeconds) or 1)
+		while self._debugAutoTeleportLoopToken == loopToken do
+			for _, player in ipairs(Players:GetPlayers()) do
+				if self._debugAutoTeleportedByUserId[player.UserId] ~= true then
+					self:_tryDebugAutoTeleportOnPlayerAdded(player)
+				end
+			end
+			task.wait(interval)
+		end
+	end)
 end
 
 function ZoneService:_spawnZoneDebugBoundsVisuals()

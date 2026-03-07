@@ -27,9 +27,15 @@ export type Config = {
 	FallbackSpawnHeightOffset: number,
 	DefaultMaxMobsPerZone: number,
 	SpawnSampleAttemptsPerMob: number,
+	SpawnMaxOperationsPerSimulationStep: number,
+	ZonePopulationRefreshIntervalSeconds: number,
 	SpawnCollisionRadius: number,
 	SpawnCollisionHeight: number,
 	SpawnMinSeparationStuds: number,
+	SpawnMinSeparationFloorStuds: number,
+	SpawnSeparationRelaxPerFailureStuds: number,
+	SpawnSeparationRelaxStartFailures: number,
+	SpawnIgnoreSeparationAfterFailures: number,
 	SpawnZoneInsetStuds: number,
 	ZoneContainmentPadding: number,
 	RoamIdleMinSeconds: number,
@@ -47,13 +53,17 @@ export type Config = {
 	RoamSeparationWeight: number,
 	MobGroundOffset: number,
 	DebugReplicateZoneIdInUpdate: boolean,
+	DebugSpawnProgressEnabled: boolean,
+	DebugSpawnProgressIntervalSeconds: number,
+	DebugClientRenderReportEnabled: boolean,
+	DebugClientRenderReportIntervalSeconds: number,
 }
 
 local Config: Config = {
 	-- MOST LIKELY TO TWEAK (movement feel / smoothness)
 	SimulationStepIntervalSeconds = 1/60, -- Server sim step size. Lower = smoother (e.g. 1/30 or 1/60).
 	ReplicationFlushIntervalSeconds = 0.2, -- How often mob deltas are flushed to clients.
-	ReplicationDistanceLimitStuds = 280, -- Max distance for a player to receive mob updates.
+	ReplicationDistanceLimitStuds = 0, -- 0 disables distance culling; replicate all mobs in the player's current zone.
 	RoamSpeedMultiplier = 0.5, -- Global multiplier for roam speed (applied to MobDefs.MoveSpeed).
 	RoamMinSpeedStudsPerSecond = 1, -- Floor speed after multiplier.
 	RoamIdleMinSeconds = 10, -- Minimum idle duration before choosing a roam destination.
@@ -66,8 +76,14 @@ local Config: Config = {
 
 	-- OFTEN TWEAKED (spawn density / roam collision behavior)
 	DefaultMaxMobsPerZone = 3, -- Fallback max mobs when zone data does not provide MaxMobs.
-	SpawnSampleAttemptsPerMob = 120, -- Spawn sampling attempts per slot.
+	SpawnSampleAttemptsPerMob = 48, -- Spawn sampling attempts when validating a spawn position.
+	SpawnMaxOperationsPerSimulationStep = 1, -- Max spawn/respawn attempts processed per simulation step.
+	ZonePopulationRefreshIntervalSeconds = 0.2, -- How often zone player-presence is refreshed for spawn gating.
 	SpawnMinSeparationStuds = 25, -- Minimum spawn spacing between mobs.
+	SpawnMinSeparationFloorStuds = 0, -- Lowest possible spacing after repeated spawn failures.
+	SpawnSeparationRelaxPerFailureStuds = 2.5, -- Spacing reduction per failed attempt (after relax start).
+	SpawnSeparationRelaxStartFailures = 2, -- Number of failures before spacing relaxation starts.
+	SpawnIgnoreSeparationAfterFailures = 8, -- At/after this many failures, separation no longer blocks spawn.
 	SpawnZoneInsetStuds = 4, -- Inset from zone edge while sampling spawn points.
 	SpawnCollisionRadius = 2.5, -- Spawn collision check radius.
 	SpawnCollisionHeight = 6, -- Spawn collision check height.
@@ -105,6 +121,10 @@ local Config: Config = {
 
 	-- DEBUG / DEV
 	DebugReplicateZoneIdInUpdate = false, -- Include zone id in update deltas for debug.
+	DebugSpawnProgressEnabled = true, -- Temporary: print zone spawn progression counters on server.
+	DebugSpawnProgressIntervalSeconds = 1, -- Seconds between spawn debug counter prints.
+	DebugClientRenderReportEnabled = true, -- Accept and print client render parity reports.
+	DebugClientRenderReportIntervalSeconds = 1, -- Server-side print throttle per player for client render reports.
 }
 
 return table.freeze(Config)

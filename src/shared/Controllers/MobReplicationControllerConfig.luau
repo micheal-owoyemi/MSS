@@ -16,6 +16,10 @@ export type Config = {
 	MaxSmoothingAlpha: number,
 	SnapDistanceStuds: number,
 	MinVelocitySampleSeconds: number,
+	MaxVisualCreatesPerFrame: number,
+	ServerProxyRootPath: {string},
+	DebugCompareMobsEnabled: boolean,
+	DebugCompareIntervalSeconds: number,
 }
 
 local Config: Config = {
@@ -31,12 +35,16 @@ local Config: Config = {
 	SnapDistanceStuds = 45, -- If target jump exceeds this, snap instead of lerping.
 	MaxPredictedSpeedStudsPerSecond = 35, -- Cap on extrapolated speed used for prediction.
 	MaxCatchUpSpeedStudsPerSecond = 120, -- Cap render-step catch-up speed to avoid visible jumps.
+	MaxVisualCreatesPerFrame = 1, -- Limit new mob model creations per render frame to reduce GPU spikes.
+	DebugCompareMobsEnabled = true, -- Print proxy vs client-render counts and reconcile missing visuals.
+	DebugCompareIntervalSeconds = 1, -- Interval for client-side compare/reconcile debug.
 
 	-- SOMETIMES TWEAK (debug visuals)
 	RenderHeightOffset = 2, -- How high the debug sphere sits above groundY.
 	SphereSize = 4, -- Debug sphere size.
 	ModelRenderRootPath = {"Game", "MobsClient"}, -- Workspace path for client-rendered mob models.
 	SphereRenderRootPath = {"Game", "MobDebugSpheres"}, -- Workspace path for debug spheres.
+	ServerProxyRootPath = {"Game", "Mobs"}, -- Workspace path for authoritative server proxy mob models.
 
 	-- RARELY TWEAK (fallback safety)
 	DefaultGroundY = 3, -- Fallback Y if add packet does not include groundY.
