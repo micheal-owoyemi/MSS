@@ -64,18 +64,18 @@ local Config: Config = {
 	SimulationStepIntervalSeconds = 1/60, -- Server sim step size; aligned with manager cadence to avoid catch-up thrash.
 	ReplicationFlushIntervalSeconds = 0.2, -- How often mob deltas are flushed to clients.
 	ReplicationDistanceLimitStuds = 0, -- 0 disables distance culling; replicate all mobs in the player's current zone.
-	RoamSpeedMultiplier = 0.5, -- Global multiplier for roam speed (applied to MobDefs.MoveSpeed).
+	RoamSpeedMultiplier = 1, -- Global multiplier for roam speed (applied to MobDefs.MoveSpeed).
 	RoamMinSpeedStudsPerSecond = 1, -- Floor speed after multiplier.
 	RoamIdleMinSeconds = 10, -- Minimum idle duration before choosing a roam destination.
 	RoamIdleMaxSeconds = 30, -- Maximum idle duration before choosing a roam destination.
-	RoamMoveDurationMinSeconds = 5, -- Minimum time roaming before forcing idle again.
-	RoamMoveDurationMaxSeconds = 10, -- Maximum time roaming before forcing idle again.
+	RoamMoveDurationMinSeconds = 10, -- Minimum time roaming before forcing idle again.
+	RoamMoveDurationMaxSeconds = 20, -- Maximum time roaming before forcing idle again.
 	RoamArrivalDistanceStuds = 1.5, -- Consider destination reached within this radius.
 	RoamLocalDestinationBias = 0.75, -- Chance to sample a destination around current position instead of zone-wide random.
-	RoamMinTravelDistanceStuds = 10, -- Minimum distance for a new roam destination from current position.
+	RoamMinTravelDistanceStuds = 15, -- Minimum distance for a new roam destination from current position.
 	RoamMaxTravelDistanceStuds = 42, -- Maximum preferred local roam hop distance before falling back to zone-wide sampling.
 	RoamSeparationRadius = 10, -- Nearby-mob separation influence radius while roaming.
-	RoamSeparationWeight = 1.15, -- Strength of separation steering.
+	RoamSeparationWeight = 1.5, -- Strength of separation steering.
 
 	-- OFTEN TWEAKED (spawn density / roam collision behavior)
 	DefaultMaxMobsPerZone = 3, -- Fallback max mobs when zone data does not provide MaxMobs.

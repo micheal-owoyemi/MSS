@@ -3,12 +3,14 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Janitor = require(ReplicatedStorage.Packages.Janitor)
 local Config = require(script.Parent.MobReplicationControllerConfig)
 local MobAnimationPlayer = require(script.Parent.MobAnimationPlayer)
 local MobDefs = require(ReplicatedStorage.Configs.MobDefs)
+local ZoneDefs = require(ReplicatedStorage.Configs.ZoneDefs)
 
 type Packet = {
 	seq: number?,
@@ -55,6 +57,11 @@ type MobVisualRecord = {
 	LastRenderedFacingXZ: Vector2,
 	LastRenderedGroundY: number,
 	HasRenderedPose: boolean,
+}
+
+type TemplatePrewarmEntry = {
+	ZoneId: string,
+	MobDefId: string,
 }
 
 local DEFAULT_TARGET_XZ = Vector2.new(0, 0)
@@ -196,6 +203,17 @@ local function applyModelPhysicalProps(model: Model)
 			descendant.CanTouch = false
 			descendant.CanQuery = false
 			descendant.Massless = true
+			if Config.DisableMobShadows == true then
+				descendant.CastShadow = false
+			end
+		end
+	end
+end
+
+local function applyModelPresentationDefaults(model: Model)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("Highlight") then
+			descendant.Enabled = false
 		end
 	end
 end
@@ -206,6 +224,44 @@ local function stripExecutableDescendants(model: Model)
 			descendant:Destroy()
 		end
 	end
+end
+
+local function stripEditorAnimationData(model: Model)
+	local toDestroy = table.create(64) :: {Instance}
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("Pose") or descendant:IsA("Keyframe") or descendant:IsA("KeyframeSequence") or descendant:IsA("CFrameValue") then
+			table.insert(toDestroy, descendant)
+		elseif descendant:IsA("ObjectValue") or descendant:IsA("Folder") then
+			local lowerName = string.lower(descendant.Name)
+			if lowerName == "animsaves" or lowerName == "initialposes" then
+				table.insert(toDestroy, descendant)
+			end
+		end
+	end
+	for _, instance in ipairs(toDestroy) do
+		if instance.Parent ~= nil then
+			instance:Destroy()
+		end
+	end
+end
+
+local function buildPreloadAssetList(template: Model): {Instance}
+	local assets = table.create(16) :: {Instance}
+	for _, descendant in ipairs(template:GetDescendants()) do
+		if descendant:IsA("MeshPart")
+			or descendant:IsA("Decal")
+			or descendant:IsA("Texture")
+			or descendant:IsA("SurfaceAppearance")
+			or descendant:IsA("ImageLabel")
+			or descendant:IsA("ImageButton")
+			or descendant:IsA("Animation") then
+			table.insert(assets, descendant)
+		end
+	end
+	if #assets == 0 then
+		table.insert(assets, template)
+	end
+	return assets
 end
 
 local function safeFacingXZ(value: Vector2): Vector2
@@ -370,8 +426,8 @@ function MobReplicationController:_buildUiBinding(model: Model, mobDefId: string
 	if billboard == nil then
 		return nil
 	end
-	if billboard.Enabled ~= true then
-		billboard.Enabled = true
+	if billboard.Enabled ~= false then
+		billboard.Enabled = false
 	end
 
 	local nameLabels = {} :: {TextGuiObject}
@@ -395,26 +451,38 @@ function MobReplicationController:_buildUiBinding(model: Model, mobDefId: string
 		})
 	end
 
-	for _, descendant in ipairs(billboard:GetDescendants()) do
-		if isTextGuiObject(descendant) then
-			local textObject = descendant :: TextGuiObject
-			local lowerName = string.lower(textObject.Name)
-			if #nameLabels == 0 and string.find(lowerName, "name", 1, true) ~= nil then
-				table.insert(nameLabels, textObject)
-			elseif #healthLabels == 0 and (string.find(lowerName, "healthnumber", 1, true) ~= nil or string.find(lowerName, "hp", 1, true) ~= nil) then
-				table.insert(healthLabels, textObject)
+	local needsNameScan = #nameLabels == 0
+	local needsHealthTextScan = #healthLabels == 0
+	local needsHealthBarScan = #healthFillBars == 0
+	if needsNameScan or needsHealthTextScan or needsHealthBarScan then
+		for _, descendant in ipairs(billboard:GetDescendants()) do
+			if isTextGuiObject(descendant) then
+				local textObject = descendant :: TextGuiObject
+				local lowerName = string.lower(textObject.Name)
+				if needsNameScan and string.find(lowerName, "name", 1, true) ~= nil then
+					table.insert(nameLabels, textObject)
+					needsNameScan = false
+				elseif needsHealthTextScan and (string.find(lowerName, "healthnumber", 1, true) ~= nil or string.find(lowerName, "hp", 1, true) ~= nil) then
+					table.insert(healthLabels, textObject)
+					needsHealthTextScan = false
+				end
+			elseif needsHealthBarScan and descendant:IsA("GuiObject") then
+				local guiObject = descendant :: GuiObject
+				local lowerName = string.lower(guiObject.Name)
+				local isHealthFill = string.find(lowerName, "healthbar", 1, true) ~= nil
+					or string.find(lowerName, "hpbar", 1, true) ~= nil
+					or string.find(lowerName, "fill", 1, true) ~= nil
+				if isHealthFill then
+					table.insert(healthFillBars, {
+						GuiObject = guiObject,
+						BaseSize = guiObject.Size,
+					})
+					needsHealthBarScan = false
+				end
 			end
-		elseif #healthFillBars == 0 and descendant:IsA("GuiObject") then
-			local guiObject = descendant :: GuiObject
-			local lowerName = string.lower(guiObject.Name)
-			local isHealthFill = string.find(lowerName, "healthbar", 1, true) ~= nil
-				or string.find(lowerName, "hpbar", 1, true) ~= nil
-				or string.find(lowerName, "fill", 1, true) ~= nil
-			if isHealthFill then
-				table.insert(healthFillBars, {
-					GuiObject = guiObject,
-					BaseSize = guiObject.Size,
-				})
+
+			if not needsNameScan and not needsHealthTextScan and not needsHealthBarScan then
+				break
 			end
 		end
 	end
@@ -530,6 +598,14 @@ function MobReplicationController:KnitInit()
 	self._lastPacketSequence = 0
 	self._warnedMissingTemplateByKey = {} :: {[string]: true}
 	self._templateCacheByKey = {} :: {[string]: Model}
+	self._lastVisualCreateAt = 0
+	self._templatePrewarmQueue = {} :: {[number]: TemplatePrewarmEntry}
+	self._templatePrewarmQueueHead = 1
+	self._templatePrewarmQueueTail = 0
+	self._templatePrewarmQueuedByKey = {} :: {[string]: true}
+	self._templateContentPreloadedByKey = {} :: {[string]: true}
+	self._templatePrewarmTaskActive = false
+	self._lastRenderStepDt = 0
 end
 
 function MobReplicationController:KnitStart()
@@ -543,6 +619,8 @@ function MobReplicationController:KnitStart()
 	self._janitor:Add(RunService.RenderStepped:Connect(function(dt: number)
 		self:_stepSmoothing(dt)
 	end), "Disconnect", "RenderSteppedConnection")
+
+	self:_startTemplatePrewarm()
 end
 
 function MobReplicationController:_destroyVisual(mobId: string)
@@ -601,7 +679,132 @@ function MobReplicationController:_dequeuePendingAddMobId(): string?
 	return mobId
 end
 
+function MobReplicationController:_enqueueTemplatePrewarm(zoneId: string, mobDefId: string)
+	if not (typeof(zoneId) == "string" and zoneId ~= "") then
+		return
+	end
+	if not (typeof(mobDefId) == "string" and mobDefId ~= "") then
+		return
+	end
+
+	local key = templateCacheKey(zoneId, mobDefId)
+	if self._templatePrewarmQueuedByKey[key] == true then
+		return
+	end
+	self._templatePrewarmQueuedByKey[key] = true
+	self._templatePrewarmQueueTail += 1
+	self._templatePrewarmQueue[self._templatePrewarmQueueTail] = {
+		ZoneId = zoneId,
+		MobDefId = mobDefId,
+	}
+end
+
+function MobReplicationController:_dequeueTemplatePrewarm(): TemplatePrewarmEntry?
+	if self._templatePrewarmQueueHead > self._templatePrewarmQueueTail then
+		self._templatePrewarmQueueHead = 1
+		self._templatePrewarmQueueTail = 0
+		return nil
+	end
+
+	local index = self._templatePrewarmQueueHead
+	local entry = self._templatePrewarmQueue[index]
+	self._templatePrewarmQueue[index] = nil
+	self._templatePrewarmQueueHead += 1
+	if self._templatePrewarmQueueHead > self._templatePrewarmQueueTail then
+		self._templatePrewarmQueueHead = 1
+		self._templatePrewarmQueueTail = 0
+	end
+	return entry
+end
+
+function MobReplicationController:_seedTemplatePrewarmQueue()
+	for zoneId, zoneDef in pairs(ZoneDefs) do
+		if typeof(zoneDef) == "table" then
+			local spawnTable = zoneDef.MobSpawnTable
+			if typeof(spawnTable) == "table" then
+				for _, entry in ipairs(spawnTable) do
+					if typeof(entry) == "table" then
+						self:_enqueueTemplatePrewarm(zoneId, entry.MobId)
+					end
+				end
+			end
+		end
+	end
+end
+
+function MobReplicationController:_startTemplatePrewarm()
+	if Config.TemplatePrewarmEnabled ~= true then
+		return
+	end
+	if self._templatePrewarmTaskActive == true then
+		return
+	end
+
+	self:_seedTemplatePrewarmQueue()
+	self._templatePrewarmTaskActive = true
+
+	task.spawn(function()
+		local perStep = math.max(1, math.floor(Config.TemplatePrewarmPerStep))
+		local stepInterval = math.max(0.01, Config.TemplatePrewarmStepIntervalSeconds)
+
+		while true do
+			local processed = 0
+			for _ = 1, perStep do
+				local entry = self:_dequeueTemplatePrewarm()
+				if entry == nil then
+					break
+				end
+				local template = self:_resolveTemplateCached(entry.ZoneId, entry.MobDefId)
+				if template ~= nil then
+					self:_preloadTemplateContent(entry.ZoneId, entry.MobDefId, template)
+				end
+				processed += 1
+			end
+
+			if processed <= 0 then
+				break
+			end
+
+			task.wait(stepInterval)
+		end
+
+		self._templatePrewarmTaskActive = false
+	end)
+end
+
+function MobReplicationController:_preloadTemplateContent(zoneId: string, mobDefId: string, template: Model)
+	if Config.TemplateContentPreloadEnabled ~= true then
+		return
+	end
+
+	local key = templateCacheKey(zoneId, mobDefId)
+	if self._templateContentPreloadedByKey[key] == true then
+		return
+	end
+	self._templateContentPreloadedByKey[key] = true
+
+	task.spawn(function()
+		pcall(function()
+			local preloadAssets = buildPreloadAssetList(template)
+			ContentProvider:PreloadAsync(preloadAssets)
+		end)
+	end)
+end
+
 function MobReplicationController:_processPendingAdds()
+	local frameDtSkipThreshold = math.max(0, tonumber(Config.VisualCreateSkipWhenFrameDtAboveSeconds) or 0)
+	if frameDtSkipThreshold > 0 and self._lastRenderStepDt > frameDtSkipThreshold then
+		return
+	end
+
+	local minInterval = math.max(0, tonumber(Config.VisualCreateMinIntervalSeconds) or 0)
+	if minInterval > 0 then
+		local now = os.clock()
+		if (now - self._lastVisualCreateAt) < minInterval then
+			return
+		end
+	end
+
 	local budget = math.max(1, Config.MaxVisualCreatesPerFrame)
 	for _ = 1, budget do
 		local mobId = self:_dequeuePendingAddMobId()
@@ -623,6 +826,7 @@ function MobReplicationController:_processPendingAdds()
 
 		local record = self:_ensureVisual(addState)
 		if record ~= nil then
+			self._lastVisualCreateAt = os.clock()
 			self:_applyState(record, addState)
 		else
 			-- Retry on later frames when template/content becomes available.
@@ -646,7 +850,9 @@ function MobReplicationController:_resolveTemplateCached(zoneId: string, mobDefI
 	local prepared = sourceTemplate:Clone()
 	prepared.Name = sourceTemplate.Name
 	stripExecutableDescendants(prepared)
+	stripEditorAnimationData(prepared)
 	applyModelPhysicalProps(prepared)
+	applyModelPresentationDefaults(prepared)
 
 	local preparedRoot = getModelRoot(prepared)
 	if preparedRoot == nil then
@@ -746,13 +952,6 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 	self._mobVisualById[mobId] = record
 	self:_applyRenderPose(record)
 
-	setCommonAttributes(model, addState)
-	self:_applyUiState(record, addState)
-	local initialState = getStateString(addState)
-	if initialState ~= nil and record.AnimationPlayer ~= nil then
-		record.AnimationPlayer:ApplyState(initialState)
-	end
-
 	return record
 end
 
@@ -795,6 +994,7 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 end
 
 function MobReplicationController:_stepSmoothing(dt: number)
+	self._lastRenderStepDt = math.max(0, dt)
 	self:_processPendingAdds()
 
 	local dtClamped = math.max(dt, 0)
@@ -918,6 +1118,12 @@ function MobReplicationController:Destroy()
 	table.clear(self._pendingAddQueue)
 	self._pendingAddQueueHead = 1
 	self._pendingAddQueueTail = 0
+	table.clear(self._templatePrewarmQueue)
+	table.clear(self._templatePrewarmQueuedByKey)
+	table.clear(self._templateContentPreloadedByKey)
+	self._templatePrewarmQueueHead = 1
+	self._templatePrewarmQueueTail = 0
+	self._templatePrewarmTaskActive = false
 	table.clear(self._warnedMissingTemplateByKey)
 	for cacheKey, template in pairs(self._templateCacheByKey) do
 		template:Destroy()

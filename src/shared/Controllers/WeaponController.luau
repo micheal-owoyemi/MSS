@@ -55,6 +55,14 @@ type WeaponVisualRecord = {
 	TargetFacing: Vector3,
 }
 
+type MobPresentationRecord = {
+	Instance: Instance,
+	Highlight: Highlight?,
+	Billboard: BillboardGui?,
+	HighlightEnabled: boolean,
+	UiEnabled: boolean,
+}
+
 local WeaponController = Knit.CreateController({
 	Name = "WeaponController",
 })
@@ -158,6 +166,22 @@ local function resolveInstanceWorldPosition(target: Instance): Vector3?
 	return nil
 end
 
+local function resolveInstanceHoverInfo(target: Instance): (Vector3?, number)
+	if target:IsA("BasePart") then
+		local size = target.Size
+		local radius = math.max(size.X, size.Y, size.Z) * 0.5
+		return target.Position, radius
+	end
+
+	if target:IsA("Model") then
+		local cf, size = target:GetBoundingBox()
+		local radius = math.max(size.X, size.Y, size.Z) * 0.5
+		return cf.Position, radius
+	end
+
+	return resolveInstanceWorldPosition(target), 0
+end
+
 function WeaponController:KnitInit()
 	self._janitor = Janitor.new()
 	self._weaponService = nil
@@ -182,6 +206,8 @@ function WeaponController:KnitInit()
 	self._mobPositionById = {} :: {[string]: Vector3}
 	self._mobPositionExpiresAtById = {} :: {[string]: number}
 	self._mobInstanceById = {} :: {[string]: Instance}
+	self._mobPresentationById = {} :: {[string]: MobPresentationRecord}
+	self._mobPresentationActiveScratch = {} :: {[string]: true}
 	self._desiredPositionByUid = {} :: {[string]: Vector3}
 	self._desiredFacingByUid = {} :: {[string]: Vector3}
 end
@@ -189,9 +215,6 @@ end
 function WeaponController:KnitStart()
 	self._weaponService = Knit.GetService("WeaponService")
 	self._mouse = self._player:GetMouse()
-	if self._mouse ~= nil then
-		self._mouse.Icon = ""
-	end
 	self._weaponVisualRoot = ensurePath(Workspace, Config.WeaponVisualRootPath)
 	self._mobsClientRoot = resolvePath(Workspace, Config.MobsClientRootPath)
 	self._serverMobsRoot = resolvePath(Workspace, Config.ServerMobsRootPath)
@@ -295,14 +318,23 @@ function WeaponController:_resolveHoverMobId(now: number): string?
 		for _, child in ipairs(root:GetChildren()) do
 			local mobId = self:_resolveMobIdFromInstance(child)
 			if mobId ~= nil then
-				local worldPosition = resolveInstanceWorldPosition(child)
+				local worldPosition, worldRadius = resolveInstanceHoverInfo(child)
 				if worldPosition ~= nil then
 					local screenPoint, onScreen = camera:WorldToViewportPoint(worldPosition)
 					if onScreen and screenPoint.Z > 0 then
 						local dx = screenPoint.X - mouseX
 						local dy = screenPoint.Y - mouseY
 						local distanceSquared = (dx * dx) + (dy * dy)
-						if distanceSquared <= bestDistanceSquared then
+						local effectiveThreshold = threshold
+						if worldRadius > 0 then
+							local edgePoint = worldPosition + (camera.CFrame.RightVector * worldRadius)
+							local edgeScreenPoint, edgeOnScreen = camera:WorldToViewportPoint(edgePoint)
+							if edgeOnScreen then
+								effectiveThreshold = math.max(effectiveThreshold, math.abs(edgeScreenPoint.X - screenPoint.X))
+							end
+						end
+						local effectiveThresholdSq = effectiveThreshold * effectiveThreshold
+						if distanceSquared <= effectiveThresholdSq and distanceSquared <= bestDistanceSquared then
 							bestDistanceSquared = distanceSquared
 							bestMobId = mobId
 						end
@@ -559,6 +591,119 @@ function WeaponController:_rebuildLayoutCacheIfDirty()
 	self._layoutDirty = false
 end
 
+function WeaponController:_resolvePreferredBillboard(instance: Instance): BillboardGui?
+	local preferred: BillboardGui? = nil
+	local fallback: BillboardGui? = nil
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BillboardGui") then
+			local billboard = descendant :: BillboardGui
+			local lowerName = string.lower(billboard.Name)
+			if preferred == nil and (lowerName == "mobpropertiescontainer" or string.find(lowerName, "mobproperties", 1, true) ~= nil) then
+				preferred = billboard
+			end
+			if fallback == nil then
+				fallback = billboard
+			end
+		end
+	end
+	if preferred ~= nil then
+		return preferred
+	end
+	return fallback
+end
+
+function WeaponController:_resolveMobPresentationRecord(mobId: string): MobPresentationRecord?
+	local cached = self._mobPresentationById[mobId]
+	local mobsClientRoot = self._mobsClientRoot
+	local expectedInstance = if mobsClientRoot ~= nil then mobsClientRoot:FindFirstChild(mobId) else nil
+
+	if cached ~= nil then
+		if cached.Instance.Parent ~= nil and (expectedInstance == nil or expectedInstance == cached.Instance) then
+			return cached
+		end
+		self._mobPresentationById[mobId] = nil
+	end
+
+	if expectedInstance == nil then
+		return nil
+	end
+
+	local highlight = expectedInstance:FindFirstChildWhichIsA("Highlight", true)
+	local billboard = self:_resolvePreferredBillboard(expectedInstance)
+
+	local record: MobPresentationRecord = {
+		Instance = expectedInstance,
+		Highlight = highlight,
+		Billboard = billboard,
+		HighlightEnabled = false,
+		UiEnabled = false,
+	}
+
+	if highlight ~= nil and highlight.Enabled ~= false then
+		highlight.Enabled = false
+	end
+	if billboard ~= nil and billboard.Enabled ~= false then
+		billboard.Enabled = false
+	end
+
+	self._mobPresentationById[mobId] = record
+	return record
+end
+
+function WeaponController:_applyMobPresentation(assignedByMobId: {[string]: {WeaponState}})
+	local activeMobIds = self._mobPresentationActiveScratch
+	table.clear(activeMobIds)
+
+	for mobId in pairs(assignedByMobId) do
+		activeMobIds[mobId] = true
+	end
+
+	local hoverMobId = self._hoverMobId
+	if hoverMobId ~= nil then
+		activeMobIds[hoverMobId] = true
+	end
+
+	for mobId in pairs(activeMobIds) do
+		local record = self:_resolveMobPresentationRecord(mobId)
+		if record ~= nil then
+			local shouldHighlight = hoverMobId == mobId
+			local shouldShowUi = assignedByMobId[mobId] ~= nil
+
+			local highlight = record.Highlight
+			if highlight ~= nil and record.HighlightEnabled ~= shouldHighlight then
+				highlight.Enabled = shouldHighlight
+				record.HighlightEnabled = shouldHighlight
+			end
+
+			local billboard = record.Billboard
+			if billboard ~= nil and record.UiEnabled ~= shouldShowUi then
+				billboard.Enabled = shouldShowUi
+				record.UiEnabled = shouldShowUi
+			end
+		end
+	end
+
+	for mobId, record in pairs(self._mobPresentationById) do
+		if activeMobIds[mobId] ~= true then
+			local highlight = record.Highlight
+			if highlight ~= nil and record.HighlightEnabled ~= false then
+				highlight.Enabled = false
+				record.HighlightEnabled = false
+			end
+
+			local billboard = record.Billboard
+			if billboard ~= nil and record.UiEnabled ~= false then
+				billboard.Enabled = false
+				record.UiEnabled = false
+			end
+
+			if record.Instance.Parent == nil then
+				self._mobPresentationById[mobId] = nil
+			end
+		end
+	end
+end
+
 function WeaponController:_applyVisualPose(record: WeaponVisualRecord)
 	local facing = safeUnitHorizontal(record.CurrentFacing, Vector3.new(0, 0, -1))
 	local lookTarget = record.CurrentPosition + facing
@@ -576,15 +721,16 @@ function WeaponController:_stepRender(dt: number)
 
 	local now = os.clock()
 	self._hoverMobId = self:_resolveHoverMobId(now)
+	self:_rebuildLayoutCacheIfDirty()
+	local assignedByMobId = self._cachedAssignedWeaponsByMobId
+	self:_applyMobPresentation(assignedByMobId)
 
 	local rootCFrame = resolveCharacterRootCFrame(self._player)
 	if rootCFrame == nil then
 		return
 	end
 
-	self:_rebuildLayoutCacheIfDirty()
 	local unassigned = self._cachedUnassignedWeapons
-	local assignedByMobId = self._cachedAssignedWeaponsByMobId
 	local desiredPositionByUid = self._desiredPositionByUid
 	local desiredFacingByUid = self._desiredFacingByUid
 	table.clear(desiredPositionByUid)
@@ -664,9 +810,6 @@ function WeaponController:_stepRender(dt: number)
 end
 
 function WeaponController:Destroy()
-	if self._mouse ~= nil then
-		self._mouse.Icon = ""
-	end
 	for uid in pairs(self._visualByUid) do
 		self:_destroyVisual(uid)
 	end
@@ -677,6 +820,16 @@ function WeaponController:Destroy()
 	table.clear(self._mobPositionById)
 	table.clear(self._mobPositionExpiresAtById)
 	table.clear(self._mobInstanceById)
+	for _, record in pairs(self._mobPresentationById) do
+		if record.Highlight ~= nil then
+			record.Highlight.Enabled = false
+		end
+		if record.Billboard ~= nil then
+			record.Billboard.Enabled = false
+		end
+	end
+	table.clear(self._mobPresentationById)
+	table.clear(self._mobPresentationActiveScratch)
 	table.clear(self._desiredPositionByUid)
 	table.clear(self._desiredFacingByUid)
 

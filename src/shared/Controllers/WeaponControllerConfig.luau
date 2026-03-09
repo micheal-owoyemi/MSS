@@ -5,7 +5,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Data_Mobs = require(ReplicatedStorage.Data.Data_Mobs)
 
 export type Config = {
-	HoverCursorIcon: string?,
+	Settings: {
+		MobCursor: string?,
+	},
 	DoubleClickThresholdSeconds: number,
 	HoverMaxScreenDistancePixels: number,
 	HoverFallbackScanIntervalSeconds: number,
@@ -33,7 +35,9 @@ export type Config = {
 }
 
 local Config: Config = {
-	HoverCursorIcon = if typeof(Data_Mobs.Settings.MobCursor) == "string" then Data_Mobs.Settings.MobCursor else nil,
+	Settings = {
+		MobCursor = if typeof(Data_Mobs.Settings) == "table" and typeof(Data_Mobs.Settings.MobCursor) == "string" then Data_Mobs.Settings.MobCursor else nil,
+	},
 	DoubleClickThresholdSeconds = 0.24,
 	HoverMaxScreenDistancePixels = 36,
 	HoverFallbackScanIntervalSeconds = 0.08,
