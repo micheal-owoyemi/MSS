@@ -71,7 +71,6 @@ type PlayerRuntimeState = {
 	LastSentRevision: number,
 	ScratchTargetValidityByMobId: {[string]: boolean},
 	ScratchMobRecordByMobId: {[string]: any},
-	ScratchMobPositionByMobId: {[string]: any},
 	Janitor: any,
 }
 
@@ -110,58 +109,12 @@ local function isValidString(value: any, maxLength: number): boolean
 	return string.len(value) <= maxLength
 end
 
-local function resolveCharacterRootPosition(player: Player): Vector3?
-	local character = player.Character
-	if character == nil then
-		return nil
-	end
-
-	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-	if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-		return humanoidRootPart.Position
-	end
-
-	if character.PrimaryPart ~= nil then
-		return character.PrimaryPart.Position
-	end
-
-	for _, descendant in ipairs(character:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			return descendant.Position
-		end
-	end
-
-	return nil
-end
-
-local function extractMobPosition(mobRecord: any): Vector3?
-	if typeof(mobRecord) ~= "table" then
-		return nil
-	end
-
-	local clientState = mobRecord.ClientState
-	if typeof(clientState) == "table" and typeof(clientState.Position) == "Vector3" then
-		return clientState.Position
-	end
-
-	local serverState = mobRecord.ServerState
-	if typeof(serverState) == "table" and typeof(serverState.PositionXZ) == "Vector2" then
-		local groundY = if ValidationUtil.isFiniteNumber(serverState.GroundY) then serverState.GroundY else 0
-		local positionXZ = serverState.PositionXZ
-		return Vector3.new(positionXZ.X, groundY, positionXZ.Y)
-	end
-
-	return nil
-end
-
 local function normalizeMode(rawMode: any): string
 	if rawMode == "Double" then
 		return "Double"
 	end
 	return "Single"
 end
-
-local NIL_CACHE_SENTINEL = {}
 
 function WeaponService:KnitInit()
 	self._config = Config
@@ -246,7 +199,6 @@ function WeaponService:_newState(player: Player): PlayerRuntimeState
 		LastSentRevision = 0,
 		ScratchTargetValidityByMobId = {},
 		ScratchMobRecordByMobId = {},
-		ScratchMobPositionByMobId = {},
 		Janitor = stateJanitor,
 	}
 
@@ -845,13 +797,6 @@ function WeaponService:ClearTarget(player: Player): (boolean, string?)
 	return true, nil
 end
 
-function WeaponService:_isWeaponInRange(weapon: WeaponRuntime, playerPosition: Vector3?, mobPosition: Vector3?): boolean
-	if playerPosition == nil or mobPosition == nil then
-		return false
-	end
-	return CombatMath.isWithinRange(playerPosition, mobPosition, weapon.Range, self._config.RangePaddingStuds)
-end
-
 function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, damageByMobId: {[string]: {[Player]: number}})
 	local player = state.Player
 	if player.Parent ~= Players then
@@ -866,13 +811,10 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 		return
 	end
 
-	local playerPosition = resolveCharacterRootPosition(player)
 	local targetValidityByMobId = state.ScratchTargetValidityByMobId
 	local mobRecordByMobId = state.ScratchMobRecordByMobId
-	local mobPositionByMobId = state.ScratchMobPositionByMobId
 	table.clear(targetValidityByMobId)
 	table.clear(mobRecordByMobId)
-	table.clear(mobPositionByMobId)
 
 	local function isTargetValidCached(mobId: string): boolean
 		local cached = targetValidityByMobId[mobId]
@@ -902,19 +844,6 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 		targetValidityByMobId[mobId] = true
 		mobRecordByMobId[mobId] = mobRecord
 		return true
-	end
-
-	local function getMobPositionCached(mobId: string, mobRecord: any): Vector3?
-		local cachedPosition = mobPositionByMobId[mobId]
-		if cachedPosition ~= nil then
-			if cachedPosition == NIL_CACHE_SENTINEL then
-				return nil
-			end
-			return cachedPosition
-		end
-		local resolved = extractMobPosition(mobRecord)
-		mobPositionByMobId[mobId] = if resolved ~= nil then resolved else NIL_CACHE_SENTINEL
-		return resolved
 	end
 
 	for _, uid in ipairs(state.OrderedWeaponUids) do
@@ -949,17 +878,14 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 								local due = math.floor(((now - nextAttackAt) / interval) + 1)
 								local attacksDue = math.max(0, math.min(self._config.AttackCatchUpLimitPerTick, due))
 								if attacksDue > 0 then
-									local mobPosition = getMobPositionCached(targetMobId, mobRecord)
-									if self:_isWeaponInRange(weapon, playerPosition, mobPosition) then
-										local damagePerAttack = CombatMath.computeDamage(weapon.BaseDps, cadence, self._config.DamageMultiplier, 0)
-										if damagePerAttack > 0 then
-											local byPlayer = damageByMobId[targetMobId]
-											if byPlayer == nil then
-												byPlayer = self:_acquireDamageBucket()
-												damageByMobId[targetMobId] = byPlayer
-											end
-											byPlayer[player] = (byPlayer[player] or 0) + (damagePerAttack * attacksDue)
+									local damagePerAttack = CombatMath.computeDamage(weapon.BaseDps, cadence, self._config.DamageMultiplier, 0)
+									if damagePerAttack > 0 then
+										local byPlayer = damageByMobId[targetMobId]
+										if byPlayer == nil then
+											byPlayer = self:_acquireDamageBucket()
+											damageByMobId[targetMobId] = byPlayer
 										end
+										byPlayer[player] = (byPlayer[player] or 0) + (damagePerAttack * attacksDue)
 									end
 									nextAttackAt += interval * attacksDue
 								end

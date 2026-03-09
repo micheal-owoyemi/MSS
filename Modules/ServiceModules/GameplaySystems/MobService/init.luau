@@ -88,11 +88,6 @@ type MobRuntimeRecord = {
 	Janitor: any,
 }
 
-type ZoneGraceCacheRecord = {
-	ZoneId: string,
-	ExpiresAt: number,
-}
-
 local MobService = Knit.CreateService({
 	Name = "MobService",
 	Client = {
@@ -353,7 +348,6 @@ function MobService:KnitInit()
 	self._replicationAccumulator = 0
 	self._positionThresholdSquared = Config.PositionChangeThresholdStuds * Config.PositionChangeThresholdStuds
 	self._zonePopulationRefreshIntervalSeconds = math.max(0.05, Config.ZonePopulationRefreshIntervalSeconds)
-	self._replicationZoneGraceSeconds = math.max(0, Config.ReplicationZoneGraceSeconds)
 	self._maxCombatSyncStepStuds = math.max(0, Config.MaxCombatSyncStepStuds)
 	self._roamMinTravelDistanceStuds = math.max(0, Config.RoamMinTravelDistanceStuds)
 	self._roamMinTravelDistanceStudsSq = self._roamMinTravelDistanceStuds * self._roamMinTravelDistanceStuds
@@ -370,7 +364,6 @@ function MobService:KnitInit()
 	self._spawnQueueByMobId = {} :: {[string]: true}
 	self._zonePopulationById = {} :: {[string]: number}
 	self._lastZonePopulationRefreshAt = 0
-	self._replicationZoneCacheByUserId = {} :: {[number]: ZoneGraceCacheRecord}
 
 	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
@@ -432,7 +425,6 @@ function MobService:_onPlayerRemoving(player: Player)
 	self:_clearPlayerAsAttacker(player)
 	self._replicationBuffer:ResetPlayer(player.UserId)
 	self._lastZonePopulationRefreshAt = 0
-	self._replicationZoneCacheByUserId[player.UserId] = nil
 end
 
 function MobService:_respawnScheduleKey(mobId: string): string
@@ -596,7 +588,7 @@ function MobService:_getSortedMobIdsForZone(zoneId: string): {string}
 	return sorted
 end
 
-function MobService:_resolveReplicationZoneIdForPlayer(player: Player, now: number): string?
+function MobService:_resolveReplicationZoneIdForPlayer(player: Player): string?
 	local zoneId: string? = nil
 	local zoneService = self._zoneService
 	if zoneService ~= nil then
@@ -605,23 +597,7 @@ function MobService:_resolveReplicationZoneIdForPlayer(player: Player, now: numb
 			zoneId = resolvedZoneId
 		end
 	end
-
-	local userId = player.UserId
-	if zoneId ~= nil then
-		self._replicationZoneCacheByUserId[userId] = {
-			ZoneId = zoneId,
-			ExpiresAt = now + self._replicationZoneGraceSeconds,
-		}
-		return zoneId
-	end
-
-	local cached = self._replicationZoneCacheByUserId[userId]
-	if cached ~= nil and now <= cached.ExpiresAt then
-		return cached.ZoneId
-	end
-
-	self._replicationZoneCacheByUserId[userId] = nil
-	return nil
+	return zoneId
 end
 
 function MobService:_buildAliveMobIdsForZone(zoneId: string): {string}
@@ -1878,11 +1854,9 @@ end
 
 function MobService:_getRelevantMobIdsForPlayer(
 	player: Player,
-	now: number?,
 	aliveMobIdsByZone: {[string]: {string}}?
 ): {string}
-	local resolvedNow = if ValidationUtil.isFiniteNumber(now) then (now :: number) else os.clock()
-	local zoneId = self:_resolveReplicationZoneIdForPlayer(player, resolvedNow)
+	local zoneId = self:_resolveReplicationZoneIdForPlayer(player)
 	if zoneId == nil then
 		return {}
 	end
@@ -1939,7 +1913,7 @@ function MobService:FlushReplicationBuffers(now: number, dt: number)
 		local zoneAliveCache = {} :: {[string]: {string}}
 
 		for player in pairs(self._activePlayers) do
-			local relevantMobIds = self:_getRelevantMobIdsForPlayer(player, now, zoneAliveCache)
+			local relevantMobIds = self:_getRelevantMobIdsForPlayer(player, zoneAliveCache)
 			local packet = self._replicationBuffer:BuildPacketForPlayer(
 				player.UserId,
 				now,
@@ -2114,7 +2088,6 @@ function MobService:Destroy()
 	table.clear(self._spawnQueue)
 	table.clear(self._spawnQueueByMobId)
 	table.clear(self._zonePopulationById)
-	table.clear(self._replicationZoneCacheByUserId)
 	self._spawnQueueHead = 1
 	self._spawnQueueTail = 0
 	self._lastZonePopulationRefreshAt = 0

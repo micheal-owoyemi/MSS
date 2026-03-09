@@ -11,7 +11,6 @@ export type Config = {
 	MaxUpdatesPerFlushPerPlayer: number,
 	MaxRemovesPerFlushPerPlayer: number,
 	MaxTotalMobEntriesPerFlush: number,
-	ReplicationZoneGraceSeconds: number,
 	MaxDamagePerHit: number,
 	MinDamagePerHit: number,
 	DefaultRespawnDelaySeconds: number,
@@ -62,7 +61,7 @@ export type Config = {
 
 local Config: Config = {
 	-- MOST LIKELY TO TWEAK (movement feel / smoothness)
-	SimulationStepIntervalSeconds = 1/20, -- Server sim step size; aligned with manager cadence to avoid catch-up thrash.
+	SimulationStepIntervalSeconds = 1/60, -- Server sim step size; aligned with manager cadence to avoid catch-up thrash.
 	ReplicationFlushIntervalSeconds = 0.2, -- How often mob deltas are flushed to clients.
 	ReplicationDistanceLimitStuds = 0, -- 0 disables distance culling; replicate all mobs in the player's current zone.
 	RoamSpeedMultiplier = 0.5, -- Global multiplier for roam speed (applied to MobDefs.MoveSpeed).
@@ -104,7 +103,6 @@ local Config: Config = {
 	MaxUpdatesPerFlushPerPlayer = 30, -- Per-flush cap on update entries per player.
 	MaxRemovesPerFlushPerPlayer = 30, -- Per-flush cap on remove entries per player.
 	MaxTotalMobEntriesPerFlush = 50, -- Hard ceiling per packet build.
-	ReplicationZoneGraceSeconds = 2.0, -- Keep last known zone through brief zone-resolution jitter to prevent transient client removals.
 	PositionChangeThresholdStuds = 0.2, -- Threshold for position-change revision bumps.
 	FacingDotThreshold = 0.999, -- Facing-change sensitivity (dot product threshold).
 	MinDamagePerHit = 0.01, -- Reject damage below this amount.

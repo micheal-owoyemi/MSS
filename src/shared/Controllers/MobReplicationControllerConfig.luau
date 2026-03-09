@@ -15,8 +15,6 @@ export type Config = {
 	RenderPoseMinDistanceStuds: number,
 	RenderPoseFacingDotThreshold: number,
 	MaxVisualCreatesPerFrame: number,
-	RelevanceRemoveGraceSeconds: number,
-	DeadRemoveGraceSeconds: number,
 }
 
 local Config: Config = {
@@ -32,8 +30,6 @@ local Config: Config = {
 	RenderPoseMinDistanceStuds = 0.015, -- Skip PivotTo if XZ movement is below this threshold.
 	RenderPoseFacingDotThreshold = 0.9999, -- Skip PivotTo if facing change is below this dot threshold.
 	MaxVisualCreatesPerFrame = 1, -- Limit new mob model creations per render frame to reduce GPU spikes.
-	RelevanceRemoveGraceSeconds = 0.6, -- Delay hard-destroy for rm packets to absorb transient relevance flicker.
-	DeadRemoveGraceSeconds = 0.12, -- Small delay for al=false to avoid one-frame false negatives.
 	ModelRenderRootPath = {"Game", "MobsClient"}, -- Workspace path for client-rendered mob models.
 
 	-- RARELY TWEAK (fallback safety)

@@ -529,9 +529,7 @@ function MobReplicationController:KnitInit()
 	self._pendingAddQueueTail = 0
 	self._lastPacketSequence = 0
 	self._warnedMissingTemplateByKey = {} :: {[string]: true}
-	self._pendingRemoveExpiresAtByMobId = {} :: {[string]: number}
 	self._templateCacheByKey = {} :: {[string]: Model}
-	self._pendingRemoveScratch = {} :: {string}
 end
 
 function MobReplicationController:KnitStart()
@@ -551,7 +549,6 @@ function MobReplicationController:_destroyVisual(mobId: string)
 	local existing = self._mobVisualById[mobId]
 	if existing == nil then
 		self._pendingAddByMobId[mobId] = nil
-		self._pendingRemoveExpiresAtByMobId[mobId] = nil
 		return
 	end
 
@@ -565,43 +562,6 @@ function MobReplicationController:_destroyVisual(mobId: string)
 
 	self._mobVisualById[mobId] = nil
 	self._pendingAddByMobId[mobId] = nil
-	self._pendingRemoveExpiresAtByMobId[mobId] = nil
-end
-
-function MobReplicationController:_cancelPendingRemove(mobId: string)
-	self._pendingRemoveExpiresAtByMobId[mobId] = nil
-end
-
-function MobReplicationController:_scheduleRemove(mobId: string, graceSeconds: number)
-	if typeof(mobId) ~= "string" or mobId == "" then
-		return
-	end
-
-	local resolvedGrace = math.max(0, graceSeconds)
-	if resolvedGrace <= 0 then
-		self:_destroyVisual(mobId)
-		return
-	end
-
-	self._pendingRemoveExpiresAtByMobId[mobId] = os.clock() + resolvedGrace
-end
-
-function MobReplicationController:_processPendingRemoves()
-	local now = os.clock()
-	local dueMobIds = self._pendingRemoveScratch
-	table.clear(dueMobIds)
-
-	for mobId, expiresAt in pairs(self._pendingRemoveExpiresAtByMobId) do
-		if now >= expiresAt then
-			table.insert(dueMobIds, mobId)
-		end
-	end
-
-	for _, mobId in ipairs(dueMobIds) do
-		if self._pendingRemoveExpiresAtByMobId[mobId] ~= nil then
-			self:_destroyVisual(mobId)
-		end
-	end
 end
 
 function MobReplicationController:_enqueuePendingAdd(state: {[string]: any})
@@ -609,7 +569,6 @@ function MobReplicationController:_enqueuePendingAdd(state: {[string]: any})
 	if typeof(mobId) ~= "string" then
 		return
 	end
-	self:_cancelPendingRemove(mobId)
 
 	local existingState = self._pendingAddByMobId[mobId]
 	if existingState ~= nil then
@@ -658,7 +617,7 @@ function MobReplicationController:_processPendingAdds()
 
 		local alive = addState.al
 		if alive == false then
-			self:_scheduleRemove(mobId, Config.DeadRemoveGraceSeconds)
+			self:_destroyVisual(mobId)
 			continue
 		end
 
@@ -837,7 +796,6 @@ end
 
 function MobReplicationController:_stepSmoothing(dt: number)
 	self:_processPendingAdds()
-	self:_processPendingRemoves()
 
 	local dtClamped = math.max(dt, 0)
 	local alpha = 1 - math.exp(-Config.PositionSmoothingK * dtClamped)
@@ -894,7 +852,7 @@ function MobReplicationController:_handlePacket(packet: Packet)
 	if typeof(removes) == "table" then
 		for _, mobId in ipairs(removes) do
 			if typeof(mobId) == "string" then
-				self:_scheduleRemove(mobId, Config.RelevanceRemoveGraceSeconds)
+				self:_destroyVisual(mobId)
 			end
 		end
 	end
@@ -907,7 +865,7 @@ function MobReplicationController:_handlePacket(packet: Packet)
 				if alive == false then
 					local mobId = addState.id
 					if typeof(mobId) == "string" then
-						self:_scheduleRemove(mobId, Config.DeadRemoveGraceSeconds)
+						self:_destroyVisual(mobId)
 					end
 				else
 					self:_enqueuePendingAdd(addState)
@@ -923,9 +881,8 @@ function MobReplicationController:_handlePacket(packet: Packet)
 				local mobId = updateState.id
 				if typeof(mobId) == "string" then
 					if updateState.al == false then
-						self:_scheduleRemove(mobId, Config.DeadRemoveGraceSeconds)
+						self:_destroyVisual(mobId)
 					else
-						self:_cancelPendingRemove(mobId)
 						local record = self._mobVisualById[mobId]
 						if record ~= nil then
 							self:_applyState(record, updateState)
@@ -959,7 +916,6 @@ function MobReplicationController:Destroy()
 	end
 	table.clear(self._pendingAddByMobId)
 	table.clear(self._pendingAddQueue)
-	table.clear(self._pendingRemoveExpiresAtByMobId)
 	self._pendingAddQueueHead = 1
 	self._pendingAddQueueTail = 0
 	table.clear(self._warnedMissingTemplateByKey)
@@ -967,7 +923,6 @@ function MobReplicationController:Destroy()
 		template:Destroy()
 		self._templateCacheByKey[cacheKey] = nil
 	end
-	table.clear(self._pendingRemoveScratch)
 end
 
 return MobReplicationController
