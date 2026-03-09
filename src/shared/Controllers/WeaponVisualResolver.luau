@@ -6,6 +6,7 @@ export type CreatedVisual = {
 	Instance: Instance,
 	RootPart: BasePart,
 	IsModel: boolean,
+	OrientationOffset: CFrame,
 }
 
 local WeaponVisualResolver = {}
@@ -79,6 +80,7 @@ local function createFallbackPart(uid: string, parent: Instance, config: {[strin
 		Instance = part,
 		RootPart = part,
 		IsModel = false,
+		OrientationOffset = CFrame.new(),
 	}
 end
 
@@ -96,6 +98,33 @@ local function findNamedNode(root: Instance, targetName: string): Instance?
 	end
 
 	return nil
+end
+
+local function resolveFacingLookVector(model: Model, rootPart: BasePart): Vector3
+	local faceIndicator = findNamedNode(model, "FaceIndicator")
+	if faceIndicator ~= nil and faceIndicator:IsA("BasePart") then
+		local look = faceIndicator.CFrame.LookVector
+		local horizontal = Vector3.new(look.X, 0, look.Z)
+		if horizontal.Magnitude > 1e-4 then
+			return horizontal.Unit
+		end
+	end
+
+	local rootLook = rootPart.CFrame.LookVector
+	local rootHorizontal = Vector3.new(rootLook.X, 0, rootLook.Z)
+	if rootHorizontal.Magnitude > 1e-4 then
+		return rootHorizontal.Unit
+	end
+
+	return Vector3.new(0, 0, -1)
+end
+
+local function computeModelOrientationOffset(model: Model, rootPart: BasePart): CFrame
+	local pivot = model:GetPivot()
+	local pivotPosition = pivot.Position
+	local facing = resolveFacingLookVector(model, rootPart)
+	local referencePose = CFrame.lookAt(pivotPosition, pivotPosition + facing)
+	return referencePose:Inverse() * pivot
 end
 
 function WeaponVisualResolver.CreateVisual(uid: string, defId: string, parent: Instance, config: {[string]: any}): CreatedVisual
@@ -136,10 +165,13 @@ function WeaponVisualResolver.CreateVisual(uid: string, defId: string, parent: I
 	clone.PrimaryPart = rootPart
 	clone.Parent = parent
 
+	local orientationOffset = computeModelOrientationOffset(clone, rootPart)
+
 	return {
 		Instance = clone,
 		RootPart = rootPart,
 		IsModel = true,
+		OrientationOffset = orientationOffset,
 	}
 end
 

@@ -57,6 +57,11 @@ export type ProfileData = {
 
 local CURRENT_SCHEMA_VERSION = 2
 local MAX_TRANSACTION_HISTORY = 50
+local STARTER_WOODEN_SWORD_DEF_ID = "RustySword"
+local STARTER_WOODEN_SWORD_UID_001 = "STARTER_WoodenSword_001"
+local STARTER_WOODEN_SWORD_UID_002 = "STARTER_WoodenSword_002"
+local STARTER_WOODEN_SWORD_UID_003 = "STARTER_WoodenSword_003"
+local STARTER_WOODEN_SWORD_UID_004 = "STARTER_WoodenSword_004"
 
 local DEFAULT_PROFILE_TEMPLATE: ProfileData = {
 	Meta = {
@@ -75,15 +80,74 @@ local DEFAULT_PROFILE_TEMPLATE: ProfileData = {
 		Gems = 0,
 	},
 	Inventory = {
-		Weapons = {},
+		Weapons = {
+			[STARTER_WOODEN_SWORD_UID_001] = {
+				Uid = STARTER_WOODEN_SWORD_UID_001,
+				ItemId = STARTER_WOODEN_SWORD_UID_001,
+				DefId = STARTER_WOODEN_SWORD_DEF_ID,
+				WeaponDefId = STARTER_WOODEN_SWORD_DEF_ID,
+				Type = "Weapon",
+				DisplayName = "Wooden Sword",
+				Rarity = "Common",
+				Quantity = 1,
+				CreatedAt = 0,
+				Level = 1,
+				RolledStats = {},
+				IsTradable = true,
+			},
+			[STARTER_WOODEN_SWORD_UID_002] = {
+				Uid = STARTER_WOODEN_SWORD_UID_002,
+				ItemId = STARTER_WOODEN_SWORD_UID_002,
+				DefId = STARTER_WOODEN_SWORD_DEF_ID,
+				WeaponDefId = STARTER_WOODEN_SWORD_DEF_ID,
+				Type = "Weapon",
+				DisplayName = "Wooden Sword",
+				Rarity = "Common",
+				Quantity = 1,
+				CreatedAt = 0,
+				Level = 1,
+				RolledStats = {},
+				IsTradable = true,
+			},
+			[STARTER_WOODEN_SWORD_UID_003] = {
+				Uid = STARTER_WOODEN_SWORD_UID_003,
+				ItemId = STARTER_WOODEN_SWORD_UID_003,
+				DefId = STARTER_WOODEN_SWORD_DEF_ID,
+				WeaponDefId = STARTER_WOODEN_SWORD_DEF_ID,
+				Type = "Weapon",
+				DisplayName = "Wooden Sword",
+				Rarity = "Common",
+				Quantity = 1,
+				CreatedAt = 0,
+				Level = 1,
+				RolledStats = {},
+				IsTradable = true,
+			},
+			[STARTER_WOODEN_SWORD_UID_004] = {
+				Uid = STARTER_WOODEN_SWORD_UID_004,
+				ItemId = STARTER_WOODEN_SWORD_UID_004,
+				DefId = STARTER_WOODEN_SWORD_DEF_ID,
+				WeaponDefId = STARTER_WOODEN_SWORD_DEF_ID,
+				Type = "Weapon",
+				DisplayName = "Wooden Sword",
+				Rarity = "Common",
+				Quantity = 1,
+				CreatedAt = 0,
+				Level = 1,
+				RolledStats = {},
+				IsTradable = true,
+			},
+		},
 		Stackables = {},
 		Consumables = {},
 		Gifts = {},
 		LockedItems = {},
 	},
 	EquippedSlots = {
-		PrimaryWeapon = "",
-		SecondaryWeapon = "",
+		PrimaryWeapon = STARTER_WOODEN_SWORD_UID_001,
+		SecondaryWeapon = STARTER_WOODEN_SWORD_UID_002,
+		TertiaryWeapon = STARTER_WOODEN_SWORD_UID_003,
+		QuaternaryWeapon = STARTER_WOODEN_SWORD_UID_004,
 	},
 	UnlockedZones = {
 		Starter = true,
@@ -166,6 +230,56 @@ local function sanitizeInventory(inventory: {[string]: any})
 				lockRecord.Reason = nil
 			end
 		end
+	end
+end
+
+local function buildStarterWoodenSword(uid: string, createdAt: number): {[string]: any}
+	return {
+		Uid = uid,
+		ItemId = uid,
+		DefId = STARTER_WOODEN_SWORD_DEF_ID,
+		WeaponDefId = STARTER_WOODEN_SWORD_DEF_ID,
+		Type = "Weapon",
+		DisplayName = "Wooden Sword",
+		Rarity = "Common",
+		Quantity = 1,
+		CreatedAt = createdAt,
+		Level = 1,
+		RolledStats = {},
+		IsTradable = true,
+	}
+end
+
+local function ensureStarterWoodenSwordLoadout(profileData: {[string]: any}, now: number?)
+	local inventory = ensureTable(profileData, "Inventory")
+	local weapons = ensureTable(inventory, "Weapons")
+	local equippedSlots = ensureTable(profileData, "EquippedSlots")
+	local createdAt = sanitizeNumber(now, os.time(), 0, nil)
+
+	if typeof(weapons[STARTER_WOODEN_SWORD_UID_001]) ~= "table" then
+		weapons[STARTER_WOODEN_SWORD_UID_001] = buildStarterWoodenSword(STARTER_WOODEN_SWORD_UID_001, createdAt)
+	end
+	if typeof(weapons[STARTER_WOODEN_SWORD_UID_002]) ~= "table" then
+		weapons[STARTER_WOODEN_SWORD_UID_002] = buildStarterWoodenSword(STARTER_WOODEN_SWORD_UID_002, createdAt)
+	end
+	if typeof(weapons[STARTER_WOODEN_SWORD_UID_003]) ~= "table" then
+		weapons[STARTER_WOODEN_SWORD_UID_003] = buildStarterWoodenSword(STARTER_WOODEN_SWORD_UID_003, createdAt)
+	end
+	if typeof(weapons[STARTER_WOODEN_SWORD_UID_004]) ~= "table" then
+		weapons[STARTER_WOODEN_SWORD_UID_004] = buildStarterWoodenSword(STARTER_WOODEN_SWORD_UID_004, createdAt)
+	end
+
+	if not ValidationUtil.isNonEmptyString(equippedSlots.PrimaryWeapon) or typeof(weapons[equippedSlots.PrimaryWeapon]) ~= "table" then
+		equippedSlots.PrimaryWeapon = STARTER_WOODEN_SWORD_UID_001
+	end
+	if not ValidationUtil.isNonEmptyString(equippedSlots.SecondaryWeapon) or typeof(weapons[equippedSlots.SecondaryWeapon]) ~= "table" then
+		equippedSlots.SecondaryWeapon = STARTER_WOODEN_SWORD_UID_002
+	end
+	if not ValidationUtil.isNonEmptyString(equippedSlots.TertiaryWeapon) or typeof(weapons[equippedSlots.TertiaryWeapon]) ~= "table" then
+		equippedSlots.TertiaryWeapon = STARTER_WOODEN_SWORD_UID_003
+	end
+	if not ValidationUtil.isNonEmptyString(equippedSlots.QuaternaryWeapon) or typeof(weapons[equippedSlots.QuaternaryWeapon]) ~= "table" then
+		equippedSlots.QuaternaryWeapon = STARTER_WOODEN_SWORD_UID_004
 	end
 end
 
@@ -265,6 +379,7 @@ local function migrateInPlace(rawProfile: any, now: number?): (ProfileData, numb
 	sanitizeProgression(profileData.Progression)
 	sanitizeCurrencyMap(profileData.Currencies)
 	sanitizeInventory(profileData.Inventory)
+	ensureStarterWoodenSwordLoadout(profileData, now)
 	sanitizeStats(profileData.Stats)
 	sanitizeTransactionHistory(profileData)
 

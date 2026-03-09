@@ -23,6 +23,12 @@ local ItemDefinitions = {
 		SecondaryWeapon = {
 			AllowedItemTypes = {"Weapon"},
 		},
+		TertiaryWeapon = {
+			AllowedItemTypes = {"Weapon"},
+		},
+		QuaternaryWeapon = {
+			AllowedItemTypes = {"Weapon"},
+		},
 	},
 	ItemsByDefId = {} :: {[string]: ItemDefinition},
 }

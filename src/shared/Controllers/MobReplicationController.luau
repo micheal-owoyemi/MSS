@@ -41,16 +41,6 @@ local MobReplicationController = Knit.CreateController({
 	Name = "MobReplicationController",
 })
 
-local function resolvePath(root: Instance, segments: {string}): Instance?
-	local cursor: Instance? = root
-	for _, segment in ipairs(segments) do
-		if cursor == nil then
-			return nil
-		end
-		cursor = cursor:FindFirstChild(segment)
-	end
-	return cursor
-end
 
 local function ensurePath(root: Instance, segments: {string}): Instance
 	local cursor: Instance = root
@@ -58,10 +48,11 @@ local function ensurePath(root: Instance, segments: {string}): Instance
 		local nextNode = cursor:FindFirstChild(segment)
 		if nextNode == nil then
 			nextNode = Instance.new("Folder")
+			assert(nextNode ~= nil)
 			nextNode.Name = segment
 			nextNode.Parent = cursor
 		end
-		cursor = nextNode
+		cursor = nextNode :: Instance
 	end
 	return cursor
 end
@@ -114,6 +105,18 @@ local function resolveTemplate(zoneId: string, mobDefId: string): Model?
 		return directModel
 	end
 
+	if zoneFolder ~= nil then
+		local fallbackModel = zoneFolder:FindFirstChildWhichIsA("Model", true)
+		if fallbackModel ~= nil then
+			return fallbackModel
+		end
+	end
+
+	local globalFallbackModel = mobsRoot:FindFirstChildWhichIsA("Model", true)
+	if globalFallbackModel ~= nil then
+		return globalFallbackModel
+	end
+
 	return nil
 end
 
@@ -140,15 +143,6 @@ local function applyModelPhysicalProps(model: Model)
 			descendant.Massless = true
 		end
 	end
-end
-
-local function facingVector3FromXZ(value: Vector2): Vector3
-	local magnitude = value.Magnitude
-	if magnitude <= 1e-4 then
-		return Vector3.new(0, 0, -1)
-	end
-	local unit = value / magnitude
-	return Vector3.new(unit.X, 0, unit.Y)
 end
 
 local function safeFacingXZ(value: Vector2): Vector2
@@ -334,6 +328,9 @@ function MobReplicationController:_processPendingAdds()
 		local record = self:_ensureVisual(addState)
 		if record ~= nil then
 			self:_applyState(record, addState)
+		else
+			-- Retry on later frames when template/content becomes available.
+			self:_enqueuePendingAdd(addState)
 		end
 	end
 end
@@ -553,6 +550,12 @@ function MobReplicationController:_handlePacket(packet: Packet)
 							if pendingState ~= nil then
 								for key, value in pairs(updateState) do
 									pendingState[key] = value
+								end
+							elseif updateState.al == true then
+								local zoneId = updateState.z
+								local mobDefId = updateState.d
+								if typeof(zoneId) == "string" and typeof(mobDefId) == "string" then
+									self:_enqueuePendingAdd(updateState)
 								end
 							end
 						end

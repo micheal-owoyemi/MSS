@@ -1718,6 +1718,12 @@ function MobService:_serializeMobAddState(mobId: string): {[string]: any}?
 	if record == nil then
 		return nil
 	end
+	if record.ClientState.Alive ~= true then
+		return nil
+	end
+	if not ValidationUtil.isNonEmptyString(record.ClientState.MobDefId) then
+		return nil
+	end
 	return StateSerializer.SerializeAdd(record.ClientState)
 end
 
@@ -1726,9 +1732,13 @@ function MobService:_serializeMobUpdateState(mobId: string): {[string]: any}?
 	if record == nil then
 		return nil
 	end
-	local payload = StateSerializer.SerializeUpdate(record.ClientState)
-	payload.z = nil
-	return payload
+	if record.ClientState.Alive ~= true then
+		return nil
+	end
+	if not ValidationUtil.isNonEmptyString(record.ClientState.MobDefId) then
+		return nil
+	end
+	return StateSerializer.SerializeUpdate(record.ClientState)
 end
 
 function MobService:_getRelevantMobIdsForPlayer(player: Player): {string}
@@ -1757,7 +1767,7 @@ function MobService:_getRelevantMobIdsForPlayer(player: Player): {string}
 	local mobIds = {}
 	for mobId in pairs(zoneSet) do
 		local record = self._mobById[mobId]
-		if record ~= nil then
+		if record ~= nil and record.ClientState.Alive == true then
 			if playerPosition ~= nil and distanceLimit > 0 then
 				if (record.ClientState.Position - playerPosition).Magnitude^2 <= limitSquared then
 					table.insert(mobIds, mobId)

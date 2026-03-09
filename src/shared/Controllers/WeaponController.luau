@@ -46,8 +46,9 @@ type WeaponVisualRecord = {
 	Uid: string,
 	DefId: string,
 	Instance: Instance,
-	RootPart: BasePart,
+	RootPart: BasePart?,
 	IsModel: boolean,
+	OrientationOffset: CFrame,
 	CurrentPosition: Vector3,
 	TargetPosition: Vector3,
 	CurrentFacing: Vector3,
@@ -74,11 +75,11 @@ local function ensurePath(root: Instance, segments: {string}): Instance
 	for _, segment in ipairs(segments) do
 		local nextNode = cursor:FindFirstChild(segment)
 		if nextNode == nil then
-			nextNode = Instance.new("Folder")
-			nextNode.Name = segment
-			nextNode.Parent = cursor
+			nextNode = Instance.new("Folder") :: Instance;
+			(nextNode :: Instance).Name = segment;
+			(nextNode :: Instance).Parent = cursor
 		end
-		cursor = nextNode
+		cursor = nextNode :: Instance
 	end
 	return cursor
 end
@@ -366,6 +367,7 @@ function WeaponController:_ensureVisual(uid: string, defId: string): WeaponVisua
 		Instance = created.Instance,
 		RootPart = created.RootPart,
 		IsModel = created.IsModel,
+		OrientationOffset = created.OrientationOffset,
 		CurrentPosition = created.RootPart.Position,
 		TargetPosition = created.RootPart.Position,
 		CurrentFacing = Vector3.new(0, 0, -1),
@@ -488,7 +490,7 @@ function WeaponController:_applyVisualPose(record: WeaponVisualRecord)
 	local pose = CFrame.lookAt(record.CurrentPosition, lookTarget)
 
 	if record.IsModel and record.Instance:IsA("Model") then
-		record.Instance:PivotTo(pose)
+		record.Instance:PivotTo(pose * record.OrientationOffset)
 	elseif record.RootPart ~= nil then
 		record.RootPart.CFrame = pose
 	end

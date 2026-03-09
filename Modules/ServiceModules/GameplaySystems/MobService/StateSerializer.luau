@@ -39,15 +39,18 @@ end
 function StateSerializer.SerializeUpdate(state: ClientMobState): {[string]: any}
 	return {
 		id = state.MobId,
+		d = state.MobDefId,
+		z = state.ZoneId,
+		sp = state.SpawnIndex,
 		r = state.Revision,
 		xz = state.PositionXZ,
+		gy = state.GroundY,
 		h = state.HP,
 		mh = state.MaxHP,
 		al = state.Alive,
 		at = state.Attackable,
 		st = state.BrainState,
 		tu = state.TargetUserId,
-		z = state.ZoneId,
 	}
 end
 
