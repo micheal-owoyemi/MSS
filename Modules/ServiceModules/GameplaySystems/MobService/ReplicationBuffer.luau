@@ -85,8 +85,7 @@ function ReplicationBuffer:BuildPacketForPlayer(
 			break
 		end
 
-		local state = getAddState(mobId)
-		if relevantSet[mobId] ~= true or state == nil then
+		if relevantSet[mobId] ~= true then
 			known[mobId] = nil
 			if removes == nil then
 				removes = {}
@@ -130,6 +129,16 @@ function ReplicationBuffer:BuildPacketForPlayer(
 						known[mobId] = revision
 						totalEntries += 1
 					end
+				end
+			else
+				local removeCount = if removes ~= nil then #removes else 0
+				if totalEntries < maxTotal and removeCount < maxRemoves then
+					known[mobId] = nil
+					if removes == nil then
+						removes = {}
+					end
+					table.insert(removes, mobId)
+					totalEntries += 1
 				end
 			end
 		end

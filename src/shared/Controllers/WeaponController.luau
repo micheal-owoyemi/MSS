@@ -541,6 +541,19 @@ function WeaponController:_rebuildLayoutCacheIfDirty()
 		table.sort(bucket, sortWeaponByQueue)
 	end
 
+	for mobId in pairs(self._mobPositionById) do
+		if assignedByMobId[mobId] == nil then
+			self._mobPositionById[mobId] = nil
+			self._mobPositionExpiresAtById[mobId] = nil
+			self._mobInstanceById[mobId] = nil
+		end
+	end
+	for mobId in pairs(self._mobInstanceById) do
+		if assignedByMobId[mobId] == nil then
+			self._mobInstanceById[mobId] = nil
+		end
+	end
+
 	self._cachedUnassignedWeapons = unassigned
 	self._cachedAssignedWeaponsByMobId = assignedByMobId
 	self._layoutDirty = false

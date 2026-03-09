@@ -368,6 +368,8 @@ function MobService:KnitInit()
 	self._zonePopulationById = {} :: {[string]: number}
 	self._lastZonePopulationRefreshAt = 0
 	self._zoneAliveCacheScratch = {} :: {[string]: {string}}
+	self._aliveMobIdsScratchByZone = {} :: {[string]: {string}}
+	self._relevantMobIdsScratchByUserId = {} :: {[number]: {string}}
 
 	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
@@ -435,6 +437,7 @@ function MobService:_onPlayerRemoving(player: Player)
 	self:_clearPlayerAsAttacker(player)
 	self._replicationBuffer:ResetPlayer(player.UserId)
 	self._lastZonePopulationRefreshAt = 0
+	self._relevantMobIdsScratchByUserId[player.UserId] = nil
 end
 
 function MobService:_respawnScheduleKey(mobId: string): string
@@ -568,6 +571,7 @@ function MobService:_unregisterMobFromZone(zoneId: string, mobId: string)
 		self._mobIdsByZone[zoneId] = nil
 		self._sortedMobIdsCacheByZone[zoneId] = nil
 		self._sortedMobIdsDirtyByZone[zoneId] = nil
+		self._aliveMobIdsScratchByZone[zoneId] = nil
 		return
 	end
 	self._sortedMobIdsDirtyByZone[zoneId] = true
@@ -616,12 +620,22 @@ function MobService:_buildAliveMobIdsForZone(zoneId: string): {string}
 		return EMPTY_MOB_ID_LIST
 	end
 
-	local mobIds = table.create(#sortedZoneMobIds)
+	local mobIds = self._aliveMobIdsScratchByZone[zoneId]
+	if mobIds == nil then
+		mobIds = table.create(#sortedZoneMobIds)
+		self._aliveMobIdsScratchByZone[zoneId] = mobIds
+	else
+		table.clear(mobIds)
+	end
 	for _, mobId in ipairs(sortedZoneMobIds) do
 		local record = self._mobById[mobId]
 		if record ~= nil and record.ClientState.Alive == true then
 			table.insert(mobIds, mobId)
 		end
+	end
+
+	if #mobIds == 0 then
+		return EMPTY_MOB_ID_LIST
 	end
 
 	return mobIds
@@ -1908,7 +1922,15 @@ function MobService:_getRelevantMobIdsForPlayer(
 	local playerPosition = if distanceLimit > 0 then resolveCharacterRootPosition(player) else nil
 	local limitSquared = distanceLimit * distanceLimit
 
-	local mobIds = table.create(#sortedZoneMobIds)
+	local userId = player.UserId
+	local mobIds = self._relevantMobIdsScratchByUserId[userId]
+	if mobIds == nil then
+		mobIds = table.create(#sortedZoneMobIds)
+		self._relevantMobIdsScratchByUserId[userId] = mobIds
+	else
+		table.clear(mobIds)
+	end
+
 	for _, mobId in ipairs(sortedZoneMobIds) do
 		local record = self._mobById[mobId]
 		if record ~= nil and record.ClientState.Alive == true then
@@ -1921,6 +1943,10 @@ function MobService:_getRelevantMobIdsForPlayer(
 				table.insert(mobIds, mobId)
 			end
 		end
+	end
+
+	if #mobIds == 0 then
+		return EMPTY_MOB_ID_LIST
 	end
 
 	return mobIds
@@ -2116,6 +2142,8 @@ function MobService:Destroy()
 	table.clear(self._spawnQueueByMobId)
 	table.clear(self._zonePopulationById)
 	table.clear(self._zoneAliveCacheScratch)
+	table.clear(self._aliveMobIdsScratchByZone)
+	table.clear(self._relevantMobIdsScratchByUserId)
 	self._spawnQueueHead = 1
 	self._spawnQueueTail = 0
 	self._lastZonePopulationRefreshAt = 0
