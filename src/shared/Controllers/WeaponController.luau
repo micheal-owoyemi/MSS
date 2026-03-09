@@ -179,7 +179,8 @@ function WeaponController:KnitInit()
 	self._lastRevision = 0
 	self._lastHoverFallbackScanAt = 0
 	self._lastHoverResolvedAt = 0
-	self._mobPositionCacheById = {} :: {[string]: {Position: Vector3, ExpiresAt: number}}
+	self._mobPositionById = {} :: {[string]: Vector3}
+	self._mobPositionExpiresAtById = {} :: {[string]: number}
 	self._mobInstanceById = {} :: {[string]: Instance}
 	self._desiredPositionByUid = {} :: {[string]: Vector3}
 	self._desiredFacingByUid = {} :: {[string]: Vector3}
@@ -466,10 +467,8 @@ function WeaponController:_getMobPosition(mobId: string): Vector3?
 		if cachedInstance.Parent ~= nil then
 			local cachedPosition = resolveInstanceWorldPosition(cachedInstance)
 			if cachedPosition ~= nil then
-				self._mobPositionCacheById[mobId] = {
-					Position = cachedPosition,
-					ExpiresAt = now + MOB_POSITION_GRACE_SECONDS,
-				}
+				self._mobPositionById[mobId] = cachedPosition
+				self._mobPositionExpiresAtById[mobId] = now + MOB_POSITION_GRACE_SECONDS
 				return cachedPosition
 			end
 		else
@@ -484,10 +483,8 @@ function WeaponController:_getMobPosition(mobId: string): Vector3?
 			local position = resolveInstanceWorldPosition(mobVisual)
 			if position ~= nil then
 				self._mobInstanceById[mobId] = mobVisual
-				self._mobPositionCacheById[mobId] = {
-					Position = position,
-					ExpiresAt = now + MOB_POSITION_GRACE_SECONDS,
-				}
+				self._mobPositionById[mobId] = position
+				self._mobPositionExpiresAtById[mobId] = now + MOB_POSITION_GRACE_SECONDS
 				return position
 			end
 		end
@@ -500,20 +497,20 @@ function WeaponController:_getMobPosition(mobId: string): Vector3?
 			local position = resolveInstanceWorldPosition(proxy)
 			if position ~= nil then
 				self._mobInstanceById[mobId] = proxy
-				self._mobPositionCacheById[mobId] = {
-					Position = position,
-					ExpiresAt = now + MOB_POSITION_GRACE_SECONDS,
-				}
+				self._mobPositionById[mobId] = position
+				self._mobPositionExpiresAtById[mobId] = now + MOB_POSITION_GRACE_SECONDS
 				return position
 			end
 		end
 	end
 
-	local cached = self._mobPositionCacheById[mobId]
-	if cached ~= nil and now <= cached.ExpiresAt then
-		return cached.Position
+	local cached = self._mobPositionById[mobId]
+	local expiresAt = self._mobPositionExpiresAtById[mobId]
+	if cached ~= nil and expiresAt ~= nil and now <= expiresAt then
+		return cached
 	end
-	self._mobPositionCacheById[mobId] = nil
+	self._mobPositionById[mobId] = nil
+	self._mobPositionExpiresAtById[mobId] = nil
 
 	return nil
 end
@@ -579,6 +576,7 @@ function WeaponController:_stepRender(dt: number)
 	local desiredFacingByUid = self._desiredFacingByUid
 	table.clear(desiredPositionByUid)
 	table.clear(desiredFacingByUid)
+	local alpha = math.clamp(1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0)), 0, 1)
 
 	for index, weapon in ipairs(unassigned) do
 		local uidHash = self._uidHashByUid[weapon.Uid]
@@ -642,7 +640,6 @@ function WeaponController:_stepRender(dt: number)
 				record.CurrentPosition = record.TargetPosition
 				record.CurrentFacing = record.TargetFacing
 			else
-				local alpha = math.clamp(1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0)), 0, 1)
 				record.CurrentPosition = record.CurrentPosition:Lerp(record.TargetPosition, alpha)
 				local blendedFacing = record.CurrentFacing:Lerp(record.TargetFacing, alpha)
 				record.CurrentFacing = safeUnitHorizontal(blendedFacing, record.TargetFacing)
@@ -664,7 +661,8 @@ function WeaponController:Destroy()
 	table.clear(self._uidHashByUid)
 	table.clear(self._cachedUnassignedWeapons)
 	table.clear(self._cachedAssignedWeaponsByMobId)
-	table.clear(self._mobPositionCacheById)
+	table.clear(self._mobPositionById)
+	table.clear(self._mobPositionExpiresAtById)
 	table.clear(self._mobInstanceById)
 	table.clear(self._desiredPositionByUid)
 	table.clear(self._desiredFacingByUid)

@@ -9,6 +9,7 @@ type BufferConfig = {
 
 type PlayerViewState = {
 	KnownMobRevisionById: {[string]: number},
+	RelevantSetScratch: {[string]: true},
 }
 
 type Packet = {
@@ -21,6 +22,8 @@ type Packet = {
 
 local ReplicationBuffer = {}
 ReplicationBuffer.__index = ReplicationBuffer
+local EMPTY_STATE_LIST = table.freeze({}) :: {{[string]: any}}
+local EMPTY_MOB_ID_LIST = table.freeze({}) :: {string}
 
 function ReplicationBuffer.new(config: BufferConfig): any
 	local self = setmetatable({
@@ -40,6 +43,7 @@ function ReplicationBuffer:_getOrCreateView(userId: number): PlayerViewState
 
 	view = {
 		KnownMobRevisionById = {},
+		RelevantSetScratch = {},
 	}
 	self._viewByUserId[userId] = view
 	return view
@@ -58,7 +62,8 @@ function ReplicationBuffer:BuildPacketForPlayer(
 ): Packet?
 	local view = self:_getOrCreateView(userId)
 	local known = view.KnownMobRevisionById
-	local relevantSet: {[string]: true} = {}
+	local relevantSet = view.RelevantSetScratch
+	table.clear(relevantSet)
 
 	for _, mobId in ipairs(relevantMobIds) do
 		relevantSet[mobId] = true
@@ -69,19 +74,23 @@ function ReplicationBuffer:BuildPacketForPlayer(
 	local maxRemoves = self._config.MaxRemovesPerFlushPerPlayer
 	local maxTotal = self._config.MaxTotalMobEntriesPerFlush
 
-	local adds = {}
-	local updates = {}
-	local removes = {}
+	local adds: {{[string]: any}}? = nil
+	local updates: {{[string]: any}}? = nil
+	local removes: {string}? = nil
 	local totalEntries = 0
 
 	for mobId in pairs(known) do
-		if totalEntries >= maxTotal or #removes >= maxRemoves then
+		local removeCount = if removes ~= nil then #removes else 0
+		if totalEntries >= maxTotal or removeCount >= maxRemoves then
 			break
 		end
 
 		local state = getAddState(mobId)
 		if relevantSet[mobId] ~= true or state == nil then
 			known[mobId] = nil
+			if removes == nil then
+				removes = {}
+			end
 			table.insert(removes, mobId)
 			totalEntries += 1
 		end
@@ -97,7 +106,11 @@ function ReplicationBuffer:BuildPacketForPlayer(
 			local addState = getAddState(mobId)
 			if addState ~= nil then
 				local revision = tonumber(addState.r) or 0
-				if #adds < maxAdds then
+				local addCount = if adds ~= nil then #adds else 0
+				if addCount < maxAdds then
+					if adds == nil then
+						adds = {}
+					end
 					table.insert(adds, addState)
 					known[mobId] = revision
 					totalEntries += 1
@@ -108,7 +121,11 @@ function ReplicationBuffer:BuildPacketForPlayer(
 			if updateState ~= nil then
 				local revision = tonumber(updateState.r) or 0
 				if revision > sentRevision then
-					if #updates < maxUpdates then
+					local updateCount = if updates ~= nil then #updates else 0
+					if updateCount < maxUpdates then
+						if updates == nil then
+							updates = {}
+						end
 						table.insert(updates, updateState)
 						known[mobId] = revision
 						totalEntries += 1
@@ -118,7 +135,7 @@ function ReplicationBuffer:BuildPacketForPlayer(
 		end
 	end
 
-	if #adds == 0 and #updates == 0 and #removes == 0 then
+	if adds == nil and updates == nil and removes == nil then
 		return nil
 	end
 
@@ -126,9 +143,9 @@ function ReplicationBuffer:BuildPacketForPlayer(
 	return {
 		seq = self._sequence,
 		t = now,
-		a = adds,
-		u = updates,
-		rm = removes,
+		a = if adds ~= nil then adds else EMPTY_STATE_LIST,
+		u = if updates ~= nil then updates else EMPTY_STATE_LIST,
+		rm = if removes ~= nil then removes else EMPTY_MOB_ID_LIST,
 	}
 end
 

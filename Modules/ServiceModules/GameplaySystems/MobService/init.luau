@@ -21,6 +21,9 @@ local MobBrain = require(SupportersFolder:WaitForChild("MobBrain"))
 local ZoneQueryHelper = require(SupportersFolder:WaitForChild("ZoneQueryHelper"))
 local MapCollisionHelper = require(SupportersFolder:WaitForChild("MapCollisionHelper"))
 local RoamBehavior = require(SupportersFolder:WaitForChild("MobBrain"):WaitForChild("RoamBehavior"))
+local EMPTY_MOB_ID_LIST = table.freeze({}) :: {string}
+local MODEL_SYNC_POSITION_EPSILON_SQ = 0.0004
+local MODEL_SYNC_FACING_DOT_THRESHOLD = 0.99995
 
 type ZoneServiceLike = {
 	GetPlayerZone: (self: ZoneServiceLike, player: Player) -> (string?, string?),
@@ -364,9 +367,16 @@ function MobService:KnitInit()
 	self._spawnQueueByMobId = {} :: {[string]: true}
 	self._zonePopulationById = {} :: {[string]: number}
 	self._lastZonePopulationRefreshAt = 0
+	self._zoneAliveCacheScratch = {} :: {[string]: {string}}
 
 	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
+	self._serializeAddCallback = function(mobId: string)
+		return self:_serializeMobAddState(mobId)
+	end
+	self._serializeUpdateCallback = function(mobId: string)
+		return self:_serializeMobUpdateState(mobId)
+	end
 	self._replicationBuffer = ReplicationBuffer.new({
 		MaxAddsPerFlushPerPlayer = Config.MaxAddsPerFlushPerPlayer,
 		MaxUpdatesPerFlushPerPlayer = Config.MaxUpdatesPerFlushPerPlayer,
@@ -603,7 +613,7 @@ end
 function MobService:_buildAliveMobIdsForZone(zoneId: string): {string}
 	local sortedZoneMobIds = self:_getSortedMobIdsForZone(zoneId)
 	if #sortedZoneMobIds == 0 then
-		return {}
+		return EMPTY_MOB_ID_LIST
 	end
 
 	local mobIds = table.create(#sortedZoneMobIds)
@@ -704,8 +714,17 @@ function MobService:_syncModelToAuthoritative(record: MobRuntimeRecord)
 	end
 
 	local clientState = record.ClientState
+	local targetPosition = clientState.Position
 	local facing = if clientState.Facing.Magnitude <= 1e-4 then Vector3.new(0, 0, -1) else clientState.Facing.Unit
-	model:PivotTo(CFrame.lookAt(clientState.Position, clientState.Position + facing))
+	local currentPivot = model:GetPivot()
+	local positionDelta = currentPivot.Position - targetPosition
+	if positionDelta:Dot(positionDelta) <= MODEL_SYNC_POSITION_EPSILON_SQ then
+		if currentPivot.LookVector:Dot(facing) >= MODEL_SYNC_FACING_DOT_THRESHOLD then
+			return
+		end
+	end
+
+	model:PivotTo(CFrame.lookAt(targetPosition, targetPosition + facing))
 end
 
 function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: number)
@@ -1792,6 +1811,12 @@ function MobService:StepMobSimulation(now: number, dt: number)
 	self._simulationAccumulator += math.max(dt, 0)
 	local stepInterval = self._config.SimulationStepIntervalSeconds
 	local steps = 0
+	if next(self._activePlayers) == nil then
+		if self._simulationAccumulator > stepInterval then
+			self._simulationAccumulator = stepInterval
+		end
+		return
+	end
 
 	while self._simulationAccumulator >= stepInterval and steps < self._config.MaxSimulationStepsPerTick do
 		self._simulationAccumulator -= stepInterval
@@ -1858,7 +1883,7 @@ function MobService:_getRelevantMobIdsForPlayer(
 ): {string}
 	local zoneId = self:_resolveReplicationZoneIdForPlayer(player)
 	if zoneId == nil then
-		return {}
+		return EMPTY_MOB_ID_LIST
 	end
 
 	local distanceLimit = self._config.ReplicationDistanceLimitStuds
@@ -1877,7 +1902,7 @@ function MobService:_getRelevantMobIdsForPlayer(
 
 	local sortedZoneMobIds = self:_getSortedMobIdsForZone(zoneId)
 	if #sortedZoneMobIds == 0 then
-		return {}
+		return EMPTY_MOB_ID_LIST
 	end
 
 	local playerPosition = if distanceLimit > 0 then resolveCharacterRootPosition(player) else nil
@@ -1902,6 +1927,11 @@ function MobService:_getRelevantMobIdsForPlayer(
 end
 
 function MobService:FlushReplicationBuffers(now: number, dt: number)
+	if next(self._activePlayers) == nil then
+		self._replicationAccumulator = 0
+		return
+	end
+
 	self._replicationAccumulator += math.max(dt, 0)
 	local flushInterval = self._config.ReplicationFlushIntervalSeconds
 	if self._replicationAccumulator < flushInterval then
@@ -1910,7 +1940,8 @@ function MobService:FlushReplicationBuffers(now: number, dt: number)
 
 	while self._replicationAccumulator >= flushInterval do
 		self._replicationAccumulator -= flushInterval
-		local zoneAliveCache = {} :: {[string]: {string}}
+		local zoneAliveCache = self._zoneAliveCacheScratch
+		table.clear(zoneAliveCache)
 
 		for player in pairs(self._activePlayers) do
 			local relevantMobIds = self:_getRelevantMobIdsForPlayer(player, zoneAliveCache)
@@ -1918,12 +1949,8 @@ function MobService:FlushReplicationBuffers(now: number, dt: number)
 				player.UserId,
 				now,
 				relevantMobIds,
-				function(mobId: string)
-					return self:_serializeMobAddState(mobId)
-				end,
-				function(mobId: string)
-					return self:_serializeMobUpdateState(mobId)
-				end
+				self._serializeAddCallback,
+				self._serializeUpdateCallback
 			)
 			if packet ~= nil then
 				self.Client.MobStateDelta:Fire(player, packet)
@@ -2088,6 +2115,7 @@ function MobService:Destroy()
 	table.clear(self._spawnQueue)
 	table.clear(self._spawnQueueByMobId)
 	table.clear(self._zonePopulationById)
+	table.clear(self._zoneAliveCacheScratch)
 	self._spawnQueueHead = 1
 	self._spawnQueueTail = 0
 	self._lastZonePopulationRefreshAt = 0

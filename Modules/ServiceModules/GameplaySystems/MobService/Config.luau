@@ -98,7 +98,7 @@ local Config: Config = {
 	MaxCombatSyncStepStuds = 8, -- Max horizontal step accepted from proxy combat movement per sim step.
 
 	-- RARELY TWEAKED (network budgets / safety / combat guards)
-	MaxSimulationStepsPerTick = 2, -- Caps catch-up sim loops in a single manager tick.
+	MaxSimulationStepsPerTick = 1, -- Caps catch-up sim loops in a single manager tick (lower = flatter CPU spikes).
 	MaxAddsPerFlushPerPlayer = 20, -- Per-flush cap on newly visible mobs per player.
 	MaxUpdatesPerFlushPerPlayer = 30, -- Per-flush cap on update entries per player.
 	MaxRemovesPerFlushPerPlayer = 30, -- Per-flush cap on remove entries per player.
