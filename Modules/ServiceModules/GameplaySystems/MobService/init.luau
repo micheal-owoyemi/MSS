@@ -96,10 +96,6 @@ local MobService = Knit.CreateService({
 	},
 })
 
-function MobService.Client:ReportClientRenderDebug(player: Player, payload: {[string]: any})
-	return self.Server:_reportClientRenderDebug(player, payload)
-end
-
 local function resolveCharacterHumanoid(player: Player): Humanoid?
 	local character = player.Character
 	if character == nil then
@@ -352,8 +348,6 @@ function MobService:KnitInit()
 	self._spawnQueueByMobId = {} :: {[string]: true}
 	self._zonePopulationById = {} :: {[string]: number}
 	self._lastZonePopulationRefreshAt = 0
-	self._lastSpawnDebugPrintAt = 0
-	self._lastClientRenderReportAtByUserId = {} :: {[number]: number}
 
 	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
@@ -413,55 +407,6 @@ function MobService:_onPlayerRemoving(player: Player)
 	self:_clearPlayerAsAttacker(player)
 	self._replicationBuffer:ResetPlayer(player.UserId)
 	self._lastZonePopulationRefreshAt = 0
-	self._lastClientRenderReportAtByUserId[player.UserId] = nil
-end
-
-function MobService:_reportClientRenderDebug(player: Player, payload: {[string]: any}): boolean
-	if self._config.DebugClientRenderReportEnabled ~= true then
-		return false
-	end
-	if not ValidationUtil.isPlayer(player) then
-		return false
-	end
-	if typeof(payload) ~= "table" then
-		return false
-	end
-
-	local now = os.clock()
-	local interval = math.max(0.1, tonumber(self._config.DebugClientRenderReportIntervalSeconds) or 1)
-	local lastPrinted = self._lastClientRenderReportAtByUserId[player.UserId] or 0
-	if (now - lastPrinted) < interval then
-		return true
-	end
-	self._lastClientRenderReportAtByUserId[player.UserId] = now
-
-	local function asCount(key: string): number
-		local value = tonumber(payload[key]) or 0
-		if not ValidationUtil.isFiniteNumber(value) then
-			return 0
-		end
-		return math.max(0, math.floor(value))
-	end
-	local phase = if typeof(payload.phase) == "string" then (payload.phase :: string) else "tick"
-
-	print(string.format(
-		"[MobService][ClientRenderDebug] player=%s(%d) phase=%s proxies=%d mobsClient=%d visuals=%d liveVisuals=%d pending=%d reconciled=%d staleRemoved=%d orphaned=%d droppedPending=%d invalidProxies=%d",
-		player.Name,
-		player.UserId,
-		phase,
-		asCount("proxies"),
-		asCount("mobsClientFolder"),
-		asCount("visuals"),
-		asCount("liveVisuals"),
-		asCount("pending"),
-		asCount("reconciledAdds"),
-		asCount("removedStale"),
-		asCount("orphaned"),
-		asCount("droppedPending"),
-		asCount("invalidProxies")
-	))
-
-	return true
 end
 
 function MobService:_respawnScheduleKey(mobId: string): string
@@ -572,57 +517,6 @@ function MobService:_refreshZonePopulation(now: number)
 			local key = zoneId :: string
 			self._zonePopulationById[key] = (self._zonePopulationById[key] or 0) + 1
 		end
-	end
-end
-
-function MobService:_debugPrintSpawnProgress(now: number)
-	if self._config.DebugSpawnProgressEnabled ~= true then
-		return
-	end
-
-	local interval = math.max(0.1, tonumber(self._config.DebugSpawnProgressIntervalSeconds) or 1)
-	if (now - self._lastSpawnDebugPrintAt) < interval then
-		return
-	end
-	self._lastSpawnDebugPrintAt = now
-
-	local queuedByZone: {[string]: number} = {}
-	for index = self._spawnQueueHead, self._spawnQueueTail do
-		local record = self._spawnQueue[index]
-		if record ~= nil then
-			local zoneId = record.ZoneId
-			queuedByZone[zoneId] = (queuedByZone[zoneId] or 0) + 1
-		end
-	end
-
-	local zoneIds: {string} = {}
-	for zoneId in pairs(self._mobIdsByZone) do
-		table.insert(zoneIds, zoneId)
-	end
-	table.sort(zoneIds)
-
-	for _, zoneId in ipairs(zoneIds) do
-		local zoneSet = self._mobIdsByZone[zoneId]
-		local targetSlots = 0
-		local alive = 0
-		if zoneSet ~= nil then
-			for mobId in pairs(zoneSet) do
-				targetSlots += 1
-				local record = self._mobById[mobId]
-				if record ~= nil and record.ClientState.Alive == true then
-					alive += 1
-				end
-			end
-		end
-
-		local queued = queuedByZone[zoneId] or 0
-		print(string.format(
-			"[MobService][SpawnDebug] zone=%s targetSlots=%d alive=%d queued=%d",
-			zoneId,
-			targetSlots,
-			alive,
-			queued
-		))
 	end
 end
 
@@ -1525,6 +1419,10 @@ function MobService:_isMobTargetValid(record: MobRuntimeRecord, player: Player):
 end
 
 function MobService:_executeMobAttack(record: MobRuntimeRecord, player: Player, _now: number): boolean
+	if self._config.AllowMobAttacksOnPlayers ~= true then
+		return true
+	end
+
 	if not self:_isMobTargetValid(record, player) then
 		return false
 	end
@@ -1789,7 +1687,6 @@ function MobService:StepMobSimulation(now: number, dt: number)
 		local stepNow = now - self._simulationAccumulator
 		self:_refreshZonePopulation(stepNow)
 		self:_processSpawnQueue(stepNow)
-		self:_debugPrintSpawnProgress(stepNow)
 
 		for _, record in pairs(self._mobById) do
 			if record.ClientState.Alive then
@@ -1830,9 +1727,7 @@ function MobService:_serializeMobUpdateState(mobId: string): {[string]: any}?
 		return nil
 	end
 	local payload = StateSerializer.SerializeUpdate(record.ClientState)
-	if self._config.DebugReplicateZoneIdInUpdate ~= true then
-		payload.z = nil
-	end
+	payload.z = nil
 	return payload
 end
 
@@ -2063,7 +1958,6 @@ function MobService:Destroy()
 	self._spawnQueueHead = 1
 	self._spawnQueueTail = 0
 	self._lastZonePopulationRefreshAt = 0
-	self._lastSpawnDebugPrintAt = 0
 end
 
 return MobService

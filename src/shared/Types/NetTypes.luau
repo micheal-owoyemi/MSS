@@ -3,9 +3,8 @@
 local NetTypes = {}
 
 export type AttackRequest = {
-	TargetMobId: string,
-	WeaponItemId: string,
-	ClientTimestamp: number,
+	MobId: string,
+	Mode: "Single" | "Double",
 }
 
 export type EquipRequest = {

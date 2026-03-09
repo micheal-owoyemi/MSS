@@ -41,22 +41,31 @@ local function validateAttack(payload: any): ValidationResult
 	if typeof(payload) ~= "table" then
 		return {ok = false, errorCode = "InvalidPayload"}
 	end
-	if not isShortString(payload.TargetMobId) then
-		return {ok = false, errorCode = "InvalidTargetMobId"}
+
+	local mobId = payload.MobId
+	if mobId == nil then
+		mobId = payload.TargetMobId -- Backward compatibility for earlier payload shape.
 	end
-	if not isShortString(payload.WeaponItemId) then
-		return {ok = false, errorCode = "InvalidWeaponItemId"}
+	if not isShortString(mobId) then
+		return {ok = false, errorCode = "InvalidMobId"}
 	end
-	if not ValidationUtil.isFiniteNumber(payload.ClientTimestamp) then
-		return {ok = false, errorCode = "InvalidClientTimestamp"}
+
+	local mode = payload.Mode
+	if mode == nil then
+		mode = payload.ClickType -- Backward compatibility for alternate naming.
+	end
+	if mode == nil then
+		mode = "Single"
+	end
+	if mode ~= "Single" and mode ~= "Double" then
+		return {ok = false, errorCode = "InvalidAttackMode"}
 	end
 
 	return {
 		ok = true,
 		sanitizedPayload = {
-			TargetMobId = payload.TargetMobId,
-			WeaponItemId = payload.WeaponItemId,
-			ClientTimestamp = payload.ClientTimestamp,
+			MobId = mobId,
+			Mode = mode,
 		},
 	}
 end

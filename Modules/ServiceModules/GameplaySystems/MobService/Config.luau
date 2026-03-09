@@ -18,6 +18,7 @@ export type Config = {
 	SpawnRootPath: {string},
 	AssetsRootPath: {string},
 	AttackCooldownSeconds: number,
+	AllowMobAttacksOnPlayers: boolean,
 	AttackRangeDefault: number,
 	AggroLockDurationDefault: number,
 	ContributionEligibilityWindowSeconds: number,
@@ -55,11 +56,6 @@ export type Config = {
 	RoamSeparationRadius: number,
 	RoamSeparationWeight: number,
 	MobGroundOffset: number,
-	DebugReplicateZoneIdInUpdate: boolean,
-	DebugSpawnProgressEnabled: boolean,
-	DebugSpawnProgressIntervalSeconds: number,
-	DebugClientRenderReportEnabled: boolean,
-	DebugClientRenderReportIntervalSeconds: number,
 }
 
 local Config: Config = {
@@ -112,6 +108,7 @@ local Config: Config = {
 	ContributionEligibilityWindowSeconds = 30, -- Contribution timeout window.
 	ContributionMinDamage = 0, -- Minimum cumulative contribution to be eligible.
 	AttackCooldownSeconds = 1.25, -- Fallback attack cooldown if def missing.
+	AllowMobAttacksOnPlayers = false, -- Temporary kill-switch for mob -> player damage.
 	AttackRangeDefault = 10, -- Fallback attack range if def missing.
 	AggroLockDurationDefault = 4, -- Fallback aggro lock duration if def missing.
 	DefaultRespawnDelaySeconds = 10, -- Fallback respawn delay.
@@ -124,13 +121,6 @@ local Config: Config = {
 	FallbackSpawnInsetStuds = 8, -- Fallback point inset from zone bounds.
 	FallbackSpawnHeightOffset = 3, -- Fallback Y offset if zone ground cannot be resolved.
 	MobGroundOffset = 0, -- Offset applied above zone ground plane for mob simulation Y.
-
-	-- DEBUG / DEV
-	DebugReplicateZoneIdInUpdate = false, -- Include zone id in update deltas for debug.
-	DebugSpawnProgressEnabled = true, -- Temporary: print zone spawn progression counters on server.
-	DebugSpawnProgressIntervalSeconds = 1, -- Seconds between spawn debug counter prints.
-	DebugClientRenderReportEnabled = true, -- Accept and print client render parity reports.
-	DebugClientRenderReportIntervalSeconds = 1, -- Server-side print throttle per player for client render reports.
 }
 
 return table.freeze(Config)
