@@ -8,7 +8,8 @@ function ReturnState.update(brain: any, now: number)
 	PathRunner.returnToSpawn(brain, now)
 
 	local currentPosition = brain:_GetPosition()
-	if (currentPosition - brain._spawnOrigin).Magnitude <= brain._returnThreshold then
+	local delta = currentPosition - brain._spawnOrigin
+	if delta:Dot(delta) <= (brain._returnThreshold * brain._returnThreshold) then
 		brain:_Transition("Idle")
 	end
 end

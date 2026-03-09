@@ -16,22 +16,19 @@ function TargetSelector.selectTarget(params: SelectionParams): Player?
 		return current
 	end
 
-	local candidates = {}
+	local selected: Player? = nil
+	local selectedUserId = math.huge
 	for player in pairs(params.Attackers) do
 		if params.IsValidTarget(player) then
-			table.insert(candidates, player)
+			local userId = player.UserId
+			if selected == nil or userId < selectedUserId then
+				selected = player
+				selectedUserId = userId
+			end
 		end
 	end
 
-	if #candidates == 0 then
-		return nil
-	end
-
-	table.sort(candidates, function(a, b)
-		return a.UserId < b.UserId
-	end)
-
-	return candidates[1]
+	return selected
 end
 
 return TargetSelector

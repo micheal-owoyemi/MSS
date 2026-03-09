@@ -213,6 +213,10 @@ local function buildExactBoundsFromPoints(zoneId: string, points: {Vector3}): Zo
 	}
 end
 
+local function isExactCornerSource(source: string?): boolean
+	return typeof(source) == "string" and string.sub(source, 1, 12) == "CornersExact"
+end
+
 local function rebuildZoneBounds()
 	local previousBounds = NormalizedBoundsByZone
 	local previousMarkerPoints = MarkerPointsByZone
@@ -235,7 +239,7 @@ local function rebuildZoneBounds()
 			else
 				local previous = previousBounds[zoneId]
 				local previousPoints = previousMarkerPoints[zoneId]
-				if previous ~= nil and previous.Source == "CornersExact" and previousPoints ~= nil and #previousPoints >= MIN_CORNER_MARKERS then
+				if previous ~= nil and isExactCornerSource(previous.Source) and previousPoints ~= nil and #previousPoints >= MIN_CORNER_MARKERS then
 					bounds = previous
 					markerPoints[zoneId] = previousPoints
 				else
@@ -269,7 +273,7 @@ local function rebuildZoneBounds()
 				else
 					local previous = previousBounds[zoneId]
 					local previousPoints = previousMarkerPoints[zoneId]
-					if previous ~= nil and previous.Source == "CornersExact" and previousPoints ~= nil and #previousPoints >= MIN_CORNER_MARKERS then
+					if previous ~= nil and isExactCornerSource(previous.Source) and previousPoints ~= nil and #previousPoints >= MIN_CORNER_MARKERS then
 						byZone[zoneId] = previous
 						markerPoints[zoneId] = previousPoints
 						table.insert(ordered, zoneId)

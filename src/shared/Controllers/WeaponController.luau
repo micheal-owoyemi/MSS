@@ -188,6 +188,9 @@ end
 function WeaponController:KnitStart()
 	self._weaponService = Knit.GetService("WeaponService")
 	self._mouse = self._player:GetMouse()
+	if self._mouse ~= nil then
+		self._mouse.Icon = ""
+	end
 	self._weaponVisualRoot = ensurePath(Workspace, Config.WeaponVisualRootPath)
 	self._mobsClientRoot = resolvePath(Workspace, Config.MobsClientRootPath)
 	self._serverMobsRoot = resolvePath(Workspace, Config.ServerMobsRootPath)
@@ -317,22 +320,6 @@ function WeaponController:_resolveHoverMobId(now: number): string?
 		self._lastHoverResolvedAt = now
 	end
 	return bestMobId
-end
-
-function WeaponController:_applyCursorForHover(mobId: string?)
-	local mouse = self._mouse
-	if mouse == nil then
-		return
-	end
-
-	local desiredIcon = ""
-	if mobId ~= nil and Config.HoverCursorIcon ~= nil and Config.HoverCursorIcon ~= "" then
-		desiredIcon = Config.HoverCursorIcon
-	end
-
-	if mouse.Icon ~= desiredIcon then
-		mouse.Icon = desiredIcon
-	end
 end
 
 function WeaponController:_onInputBegan(input: InputObject, gameProcessed: boolean)
@@ -579,7 +566,6 @@ function WeaponController:_stepRender(dt: number)
 
 	local now = os.clock()
 	self._hoverMobId = self:_resolveHoverMobId(now)
-	self:_applyCursorForHover(self._hoverMobId)
 
 	local rootCFrame = resolveCharacterRootCFrame(self._player)
 	if rootCFrame == nil then
@@ -649,8 +635,10 @@ function WeaponController:_stepRender(dt: number)
 				record.TargetFacing = rootCFrame.LookVector
 			end
 
-			local distance = (record.TargetPosition - record.CurrentPosition).Magnitude
-			if distance >= Config.SnapDistanceStuds then
+			local delta = record.TargetPosition - record.CurrentPosition
+			local distanceSq = delta:Dot(delta)
+			local snapDistance = Config.SnapDistanceStuds
+			if distanceSq >= (snapDistance * snapDistance) then
 				record.CurrentPosition = record.TargetPosition
 				record.CurrentFacing = record.TargetFacing
 			else
@@ -666,7 +654,9 @@ function WeaponController:_stepRender(dt: number)
 end
 
 function WeaponController:Destroy()
-	self:_applyCursorForHover(nil)
+	if self._mouse ~= nil then
+		self._mouse.Icon = ""
+	end
 	for uid in pairs(self._visualByUid) do
 		self:_destroyVisual(uid)
 	end

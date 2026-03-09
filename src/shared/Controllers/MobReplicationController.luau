@@ -32,6 +32,10 @@ type MobVisualRecord = {
 	BaseRotation: CFrame,
 	BaseYawRadians: number,
 	GroundY: number,
+	LastRenderedXZ: Vector2,
+	LastRenderedFacingXZ: Vector2,
+	LastRenderedGroundY: number,
+	HasRenderedPose: boolean,
 }
 
 local DEFAULT_TARGET_XZ = Vector2.new(0, 0)
@@ -177,6 +181,12 @@ local function yawFromFacingXZ(value: Vector2): number
 	return math.atan2(normalized.X, normalized.Y)
 end
 
+local function vector2DistanceSquared(left: Vector2, right: Vector2): number
+	local dx = left.X - right.X
+	local dy = left.Y - right.Y
+	return (dx * dx) + (dy * dy)
+end
+
 local function resolveFaceReference(model: Model): BasePart?
 	local named = model:FindFirstChild("FaceReference", true)
 	if named and named:IsA("BasePart") then
@@ -253,6 +263,31 @@ function MobReplicationController:_applyRenderPose(record: MobVisualRecord)
 	local yawDelta = desiredYaw - record.BaseYawRadians
 	local finalRotation = CFrame.Angles(0, yawDelta, 0) * record.BaseRotation
 	model:PivotTo(CFrame.new(renderPosition) * finalRotation)
+	record.LastRenderedXZ = record.CurrentXZ
+	record.LastRenderedFacingXZ = record.FacingXZ
+	record.LastRenderedGroundY = record.GroundY
+	record.HasRenderedPose = true
+end
+
+function MobReplicationController:_shouldApplyRenderPose(record: MobVisualRecord): boolean
+	if record.HasRenderedPose ~= true then
+		return true
+	end
+
+	local minDistance = math.max(0, Config.RenderPoseMinDistanceStuds)
+	if minDistance > 0 then
+		if vector2DistanceSquared(record.CurrentXZ, record.LastRenderedXZ) >= (minDistance * minDistance) then
+			return true
+		end
+	end
+
+	if math.abs(record.GroundY - record.LastRenderedGroundY) > 1e-3 then
+		return true
+	end
+
+	local facingDotThreshold = math.clamp(tonumber(Config.RenderPoseFacingDotThreshold) or 1, -1, 1)
+	local facingDot = record.FacingXZ:Dot(record.LastRenderedFacingXZ)
+	return facingDot <= facingDotThreshold
 end
 
 function MobReplicationController:KnitInit()
@@ -515,6 +550,10 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 		BaseRotation = baseRotation,
 		BaseYawRadians = baseYaw,
 		GroundY = groundY,
+		LastRenderedXZ = initialXZ,
+		LastRenderedFacingXZ = baseFacingXZ,
+		LastRenderedGroundY = groundY,
+		HasRenderedPose = false,
 	}
 	self._mobVisualById[mobId] = record
 	self:_applyRenderPose(record)
@@ -569,31 +608,41 @@ function MobReplicationController:_stepSmoothing(dt: number)
 	self:_processPendingAdds()
 	self:_processPendingRemoves()
 
-	local alpha = 1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0))
+	local dtClamped = math.max(dt, 0)
+	local alpha = 1 - math.exp(-Config.PositionSmoothingK * dtClamped)
 	alpha = math.clamp(alpha, Config.MinSmoothingAlpha, Config.MaxSmoothingAlpha)
+	local snapDistance = math.max(0, Config.SnapDistanceStuds)
+	local snapDistanceSq = snapDistance * snapDistance
+	local maxStep = Config.MaxCatchUpSpeedStudsPerSecond * dtClamped
+	local maxStepSq = maxStep * maxStep
+	local epsilonSq = 1e-8
 
 	for _, record in pairs(self._mobVisualById) do
 		local predictedTarget = record.TargetXZ + (record.VelocityXZ * Config.PredictionLeadSeconds)
 		local deltaToPredicted = predictedTarget - record.CurrentXZ
-		if deltaToPredicted.Magnitude >= Config.SnapDistanceStuds then
+		local deltaToPredictedSq = deltaToPredicted:Dot(deltaToPredicted)
+		if deltaToPredictedSq >= snapDistanceSq then
 			record.CurrentXZ = predictedTarget
 		else
 			local desired = record.CurrentXZ:Lerp(predictedTarget, alpha)
 			local step = desired - record.CurrentXZ
-			local maxStep = Config.MaxCatchUpSpeedStudsPerSecond * math.max(dt, 0)
-			if step.Magnitude > maxStep and step.Magnitude > 1e-4 then
-				record.CurrentXZ += step.Unit * maxStep
+			local stepSq = step:Dot(step)
+			if stepSq > maxStepSq and stepSq > epsilonSq then
+				record.CurrentXZ += step * (maxStep / math.sqrt(stepSq))
 			else
 				record.CurrentXZ = desired
 			end
 		end
 
 		local movementDelta = predictedTarget - record.CurrentXZ
-		if movementDelta.Magnitude > 1e-4 then
-			record.FacingXZ = movementDelta.Unit
+		local movementSq = movementDelta:Dot(movementDelta)
+		if movementSq > epsilonSq then
+			record.FacingXZ = movementDelta * (1 / math.sqrt(movementSq))
 		end
 
-		self:_applyRenderPose(record)
+		if self:_shouldApplyRenderPose(record) then
+			self:_applyRenderPose(record)
+		end
 	end
 end
 

@@ -93,10 +93,10 @@ local function extractPositionFromInstance(instance: Instance?): Vector3?
 	return nil
 end
 
-local function horizontalDistance(first: Vector3, second: Vector3): number
+local function horizontalDistanceSquared(first: Vector3, second: Vector3): number
 	local dx = first.X - second.X
 	local dz = first.Z - second.Z
-	return math.sqrt((dx * dx) + (dz * dz))
+	return (dx * dx) + (dz * dz)
 end
 
 function ZoneService:KnitInit()
@@ -106,6 +106,11 @@ function ZoneService:KnitInit()
 	self._serviceJanitor = Janitor.new()
 	self._teleportRateLimiter = RateLimiter.new()
 	self._zoneCacheByUserId = {} :: {[number]: ZoneCacheRecord}
+	self._zoneMissingPositionGraceSeconds = math.max(0, self._config.ZoneMissingPositionGraceSeconds)
+	local reuseDistance = math.max(0, self._config.ZoneCacheReuseDistance)
+	local fallbackDistance = math.max(reuseDistance, reuseDistance * 2)
+	self._zoneCacheReuseDistanceSq = reuseDistance * reuseDistance
+	self._zoneCacheFallbackDistanceSq = fallbackDistance * fallbackDistance
 end
 
 function ZoneService:KnitStart()
@@ -227,7 +232,7 @@ function ZoneService:_resolvePlayerZone(player: Player): (string?, string?)
 
 	local now = os.clock()
 	local cacheRecord = self._zoneCacheByUserId[player.UserId]
-	local missingPositionGrace = math.max(0, tonumber(self._config.ZoneMissingPositionGraceSeconds) or 0)
+	local missingPositionGrace = self._zoneMissingPositionGraceSeconds
 
 	if position == nil then
 		if cacheRecord ~= nil and cacheRecord.ZoneId ~= nil and now <= (cacheRecord.ExpiresAt + missingPositionGrace) then
@@ -237,15 +242,14 @@ function ZoneService:_resolvePlayerZone(player: Player): (string?, string?)
 	end
 
 	if cacheRecord ~= nil and now <= cacheRecord.ExpiresAt then
-		if horizontalDistance(position, cacheRecord.Position) <= self._config.ZoneCacheReuseDistance then
+		if horizontalDistanceSquared(position, cacheRecord.Position) <= self._zoneCacheReuseDistanceSq then
 			return cacheRecord.ZoneId, nil
 		end
 	end
 
 	local zoneId = ZoneQueryHelper.GetContainingZoneId(position, self._config.ZonePadding)
 	if zoneId == nil and cacheRecord ~= nil and cacheRecord.ZoneId ~= nil then
-		local fallbackDistance = math.max(self._config.ZoneCacheReuseDistance, self._config.ZoneCacheReuseDistance * 2)
-		if horizontalDistance(position, cacheRecord.Position) <= fallbackDistance and now <= (cacheRecord.ExpiresAt + missingPositionGrace) then
+		if horizontalDistanceSquared(position, cacheRecord.Position) <= self._zoneCacheFallbackDistanceSq and now <= (cacheRecord.ExpiresAt + missingPositionGrace) then
 			self._zoneCacheByUserId[player.UserId] = {
 				ZoneId = cacheRecord.ZoneId,
 				Position = position,

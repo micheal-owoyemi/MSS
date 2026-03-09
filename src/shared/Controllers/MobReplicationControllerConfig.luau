@@ -12,6 +12,8 @@ export type Config = {
 	MaxSmoothingAlpha: number,
 	SnapDistanceStuds: number,
 	MinVelocitySampleSeconds: number,
+	RenderPoseMinDistanceStuds: number,
+	RenderPoseFacingDotThreshold: number,
 	MaxVisualCreatesPerFrame: number,
 	RelevanceRemoveGraceSeconds: number,
 	DeadRemoveGraceSeconds: number,
@@ -27,6 +29,8 @@ local Config: Config = {
 	SnapDistanceStuds = 45, -- If target jump exceeds this, snap instead of lerping.
 	MaxPredictedSpeedStudsPerSecond = 35, -- Cap on extrapolated speed used for prediction.
 	MaxCatchUpSpeedStudsPerSecond = 120, -- Cap render-step catch-up speed to avoid visible jumps.
+	RenderPoseMinDistanceStuds = 0.015, -- Skip PivotTo if XZ movement is below this threshold.
+	RenderPoseFacingDotThreshold = 0.9999, -- Skip PivotTo if facing change is below this dot threshold.
 	MaxVisualCreatesPerFrame = 1, -- Limit new mob model creations per render frame to reduce GPU spikes.
 	RelevanceRemoveGraceSeconds = 0.6, -- Delay hard-destroy for rm packets to absorb transient relevance flicker.
 	DeadRemoveGraceSeconds = 0.12, -- Small delay for al=false to avoid one-frame false negatives.

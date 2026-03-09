@@ -352,6 +352,17 @@ function MobService:KnitInit()
 	self._simulationAccumulator = 0
 	self._replicationAccumulator = 0
 	self._positionThresholdSquared = Config.PositionChangeThresholdStuds * Config.PositionChangeThresholdStuds
+	self._zonePopulationRefreshIntervalSeconds = math.max(0.05, Config.ZonePopulationRefreshIntervalSeconds)
+	self._replicationZoneGraceSeconds = math.max(0, Config.ReplicationZoneGraceSeconds)
+	self._maxCombatSyncStepStuds = math.max(0, Config.MaxCombatSyncStepStuds)
+	self._roamMinTravelDistanceStuds = math.max(0, Config.RoamMinTravelDistanceStuds)
+	self._roamMinTravelDistanceStudsSq = self._roamMinTravelDistanceStuds * self._roamMinTravelDistanceStuds
+	self._roamMaxTravelDistanceStuds = math.max(self._roamMinTravelDistanceStuds, Config.RoamMaxTravelDistanceStuds)
+	self._roamTravelScoreDistanceStuds = math.max(1, self._roamMaxTravelDistanceStuds)
+	self._roamTravelScoreDistanceStudsInv = 1 / self._roamTravelScoreDistanceStuds
+	self._roamDesiredPeerDistance = math.max(1, Config.RoamSeparationRadius * 2)
+	self._roamDestinationSampleAttempts = math.max(1, math.floor(Config.RoamDestinationSampleAttempts))
+	self._roamLocalDestinationBias = math.clamp(Config.RoamLocalDestinationBias, 0, 1)
 	self._warnedNoSpawnPointsByZone = {} :: {[string]: true}
 	self._spawnQueue = {} :: {[number]: MobRuntimeRecord}
 	self._spawnQueueHead = 1
@@ -513,7 +524,7 @@ function MobService:_processSpawnQueue(_now: number)
 end
 
 function MobService:_refreshZonePopulation(now: number)
-	local refreshInterval = math.max(0.05, tonumber(self._config.ZonePopulationRefreshIntervalSeconds) or 0.2)
+	local refreshInterval = self._zonePopulationRefreshIntervalSeconds
 	if (now - self._lastZonePopulationRefreshAt) < refreshInterval then
 		return
 	end
@@ -599,7 +610,7 @@ function MobService:_resolveReplicationZoneIdForPlayer(player: Player, now: numb
 	if zoneId ~= nil then
 		self._replicationZoneCacheByUserId[userId] = {
 			ZoneId = zoneId,
-			ExpiresAt = now + math.max(0, tonumber(self._config.ReplicationZoneGraceSeconds) or 0),
+			ExpiresAt = now + self._replicationZoneGraceSeconds,
 		}
 		return zoneId
 	end
@@ -672,8 +683,9 @@ function MobService:_setAuthoritativePosition(
 	local clientState = record.ClientState
 	local changed = false
 	local positionXZ = vector2FromVector3(position)
+	local serverDelta = positionXZ - serverState.PositionXZ
 
-	if (positionXZ - serverState.PositionXZ).Magnitude > 1e-4 then
+	if serverDelta:Dot(serverDelta) > 1e-8 then
 		serverState.PositionXZ = positionXZ
 		changed = true
 	end
@@ -687,7 +699,8 @@ function MobService:_setAuthoritativePosition(
 		clientState.Position = position
 		changed = true
 	end
-	if (positionXZ - clientState.PositionXZ).Magnitude > 1e-4 then
+	local clientDeltaXZ = positionXZ - clientState.PositionXZ
+	if clientDeltaXZ:Dot(clientDeltaXZ) > 1e-8 then
 		clientState.PositionXZ = positionXZ
 		changed = true
 	end
@@ -766,7 +779,7 @@ function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: n
 			end
 		end
 
-		local maxStep = math.max(0, tonumber(self._config.MaxCombatSyncStepStuds) or 0)
+		local maxStep = self._maxCombatSyncStepStuds
 		if maxStep > 0 then
 			local delta = candidateXZ - fallbackXZ
 			local distance = delta.Magnitude
@@ -1587,10 +1600,10 @@ function MobService:_isRoamStepPositionValid(record: MobRuntimeRecord, candidate
 end
 
 function MobService:_isRoamDestinationValid(record: MobRuntimeRecord, currentXZ: Vector2, candidateXZ: Vector2): boolean
-	local minTravelDistance = math.max(0, tonumber(self._config.RoamMinTravelDistanceStuds) or 0)
+	local minTravelDistance = self._roamMinTravelDistanceStuds
 	if minTravelDistance > 0 then
-		local travelDistance = (candidateXZ - currentXZ).Magnitude
-		if travelDistance < minTravelDistance then
+		local travelDelta = candidateXZ - currentXZ
+		if travelDelta:Dot(travelDelta) < self._roamMinTravelDistanceStudsSq then
 			return false
 		end
 	end
@@ -1637,8 +1650,8 @@ function MobService:_getNearestAliveMobDistanceXZ(record: MobRuntimeRecord, cand
 end
 
 function MobService:_sampleLocalRoamDestinationXZ(record: MobRuntimeRecord, currentXZ: Vector2): Vector2?
-	local minTravel = math.max(0, tonumber(self._config.RoamMinTravelDistanceStuds) or 0)
-	local maxTravel = math.max(minTravel, tonumber(self._config.RoamMaxTravelDistanceStuds) or minTravel)
+	local minTravel = self._roamMinTravelDistanceStuds
+	local maxTravel = self._roamMaxTravelDistanceStuds
 	if maxTravel <= 0 then
 		return nil
 	end
@@ -1658,12 +1671,10 @@ end
 
 function MobService:_scoreRoamDestinationXZ(record: MobRuntimeRecord, currentXZ: Vector2, candidateXZ: Vector2): number
 	local travelDistance = (candidateXZ - currentXZ).Magnitude
-	local maxTravel = math.max(1, tonumber(self._config.RoamMaxTravelDistanceStuds) or 1)
-	local travelScore = math.clamp(travelDistance / maxTravel, 0, 1)
+	local travelScore = math.clamp(travelDistance * self._roamTravelScoreDistanceStudsInv, 0, 1)
 
 	local nearestMobDistance = self:_getNearestAliveMobDistanceXZ(record, candidateXZ)
-	local desiredPeerDistance = math.max(1, (tonumber(self._config.RoamSeparationRadius) or 0) * 2)
-	local peerSpacingScore = math.clamp(nearestMobDistance / desiredPeerDistance, 0, 1.5)
+	local peerSpacingScore = math.clamp(nearestMobDistance / self._roamDesiredPeerDistance, 0, 1.5)
 
 	local randomNoise = self._rng:NextNumber(0, 0.2)
 	return (peerSpacingScore * 1.5) + (travelScore * 0.75) + randomNoise
@@ -1671,8 +1682,8 @@ end
 
 function MobService:_sampleRoamDestinationXZ(record: MobRuntimeRecord, currentXZ: Vector2): Vector2?
 	local samplePointInZone = ZoneQueryHelper.SampleRandomPointXZInZone
-	local attemptCount = math.max(1, math.floor(tonumber(self._config.RoamDestinationSampleAttempts) or 1))
-	local localBias = math.clamp(tonumber(self._config.RoamLocalDestinationBias) or 0, 0, 1)
+	local attemptCount = self._roamDestinationSampleAttempts
+	local localBias = self._roamLocalDestinationBias
 
 	local bestCandidate: Vector2? = nil
 	local bestScore = -math.huge
@@ -1726,7 +1737,8 @@ function MobService:_getLocalSeparationOffsetXZ(record: MobRuntimeRecord, curren
 		end
 	end
 
-	if push.Magnitude <= 1e-4 then
+	local pushSq = push:Dot(push)
+	if pushSq <= 1e-8 then
 		return nil
 	end
 
@@ -1735,7 +1747,7 @@ function MobService:_getLocalSeparationOffsetXZ(record: MobRuntimeRecord, curren
 		return nil
 	end
 
-	return push.Unit * weight
+	return push * (weight / math.sqrt(pushSq))
 end
 
 function MobService:_stepRoam(record: MobRuntimeRecord, now: number, dt: number)

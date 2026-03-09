@@ -69,6 +69,9 @@ type PlayerRuntimeState = {
 	Revision: number,
 	Dirty: boolean,
 	LastSentRevision: number,
+	ScratchTargetValidityByMobId: {[string]: boolean},
+	ScratchMobRecordByMobId: {[string]: any},
+	ScratchMobPositionByMobId: {[string]: any},
 	Janitor: any,
 }
 
@@ -174,12 +177,30 @@ function WeaponService:KnitInit()
 	self._requestRateLimiter = RateLimiter.new()
 	self._statesByPlayer = {} :: {[Player]: PlayerRuntimeState}
 	self._activePlayers = {} :: {[Player]: true}
-	self._slotRankByName = {} :: {[string]: number}
+	self._damageByMobIdScratch = {} :: {[string]: {[Player]: number}}
+	self._damageBucketPool = {} :: {{[Player]: number}}
 	self._replicationAccumulator = 0
 	self._equipmentRefreshAccumulator = 0
+end
 
-	for index, slotName in ipairs(self._config.SlotPriority) do
-		self._slotRankByName[slotName] = index
+function WeaponService:_acquireDamageBucket(): {[Player]: number}
+	local pool = self._damageBucketPool
+	local lastIndex = #pool
+	if lastIndex <= 0 then
+		return {}
+	end
+	local bucket = pool[lastIndex]
+	pool[lastIndex] = nil
+	return bucket
+end
+
+function WeaponService:_resetDamageScratch()
+	local scratch = self._damageByMobIdScratch
+	local pool = self._damageBucketPool
+	for mobId, bucket in pairs(scratch) do
+		table.clear(bucket)
+		table.insert(pool, bucket)
+		scratch[mobId] = nil
 	end
 end
 
@@ -223,6 +244,9 @@ function WeaponService:_newState(player: Player): PlayerRuntimeState
 		Revision = 1,
 		Dirty = true,
 		LastSentRevision = 0,
+		ScratchTargetValidityByMobId = {},
+		ScratchMobRecordByMobId = {},
+		ScratchMobPositionByMobId = {},
 		Janitor = stateJanitor,
 	}
 
@@ -415,29 +439,26 @@ function WeaponService:_buildEquippedWeaponsFromProfile(player: Player): ({Resol
 	local equippedSlots = if typeof(profileData.EquippedSlots) == "table" then profileData.EquippedSlots else {}
 
 	local slotNames = {}
-	for slotName, uid in pairs(equippedSlots) do
-		if typeof(slotName) == "string" and typeof(uid) == "string" and uid ~= "" then
+	local seenSlotNames = {} :: {[string]: true}
+	for _, slotName in ipairs(self._config.SlotPriority) do
+		local uid = equippedSlots[slotName]
+		if typeof(uid) == "string" and uid ~= "" then
 			table.insert(slotNames, slotName)
+			seenSlotNames[slotName] = true
 		end
 	end
 
-	table.sort(slotNames, function(left: string, right: string)
-		local leftRank = self._slotRankByName[left]
-		local rightRank = self._slotRankByName[right]
-		if leftRank ~= nil and rightRank ~= nil then
-			if leftRank == rightRank then
-				return left < right
-			end
-			return leftRank < rightRank
+	local extraSlotNames = {}
+	for slotName, uid in pairs(equippedSlots) do
+		if typeof(slotName) == "string" and typeof(uid) == "string" and uid ~= "" and seenSlotNames[slotName] ~= true then
+			table.insert(extraSlotNames, slotName)
 		end
-		if leftRank ~= nil then
-			return true
-		end
-		if rightRank ~= nil then
-			return false
-		end
-		return left < right
-	end)
+	end
+
+	table.sort(extraSlotNames)
+	for _, slotName in ipairs(extraSlotNames) do
+		table.insert(slotNames, slotName)
+	end
 
 	local seenByUid: {[string]: true} = {}
 	local signatureParts = table.create(#slotNames)
@@ -446,7 +467,7 @@ function WeaponService:_buildEquippedWeaponsFromProfile(player: Player): ({Resol
 	for _, slotName in ipairs(slotNames) do
 		local weaponUid = equippedSlots[slotName]
 		if typeof(weaponUid) == "string" and weaponUid ~= "" then
-			table.insert(signatureParts, string.format("%s=%s", slotName, weaponUid))
+			table.insert(signatureParts, slotName .. "=" .. weaponUid)
 			if seenByUid[weaponUid] ~= true and lockedItems[weaponUid] == nil then
 				local weaponRecord = inventoryWeapons[weaponUid]
 				if typeof(weaponRecord) == "table" then
@@ -846,9 +867,12 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 	end
 
 	local playerPosition = resolveCharacterRootPosition(player)
-	local targetValidityByMobId = {} :: {[string]: boolean}
-	local mobRecordByMobId = {} :: {[string]: any}
-	local mobPositionByMobId = {} :: {[string]: any}
+	local targetValidityByMobId = state.ScratchTargetValidityByMobId
+	local mobRecordByMobId = state.ScratchMobRecordByMobId
+	local mobPositionByMobId = state.ScratchMobPositionByMobId
+	table.clear(targetValidityByMobId)
+	table.clear(mobRecordByMobId)
+	table.clear(mobPositionByMobId)
 
 	local function isTargetValidCached(mobId: string): boolean
 		local cached = targetValidityByMobId[mobId]
@@ -931,7 +955,7 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 										if damagePerAttack > 0 then
 											local byPlayer = damageByMobId[targetMobId]
 											if byPlayer == nil then
-												byPlayer = {}
+												byPlayer = self:_acquireDamageBucket()
 												damageByMobId[targetMobId] = byPlayer
 											end
 											byPlayer[player] = (byPlayer[player] or 0) + (damagePerAttack * attacksDue)
@@ -968,7 +992,8 @@ function WeaponService:StepSimulation(now: number, dt: number)
 		shouldRefreshEquip = true
 	end
 
-	local damageByMobId: {[string]: {[Player]: number}} = {}
+	self:_resetDamageScratch()
+	local damageByMobId: {[string]: {[Player]: number}} = self._damageByMobIdScratch
 
 	for player in pairs(self._activePlayers) do
 		local state = self._statesByPlayer[player]
@@ -987,6 +1012,7 @@ function WeaponService:StepSimulation(now: number, dt: number)
 
 	local mobService = self._mobService
 	if mobService == nil then
+		self:_resetDamageScratch()
 		return
 	end
 
@@ -998,6 +1024,8 @@ function WeaponService:StepSimulation(now: number, dt: number)
 			})
 		end
 	end
+
+	self:_resetDamageScratch()
 end
 
 function WeaponService:_serializeState(state: PlayerRuntimeState, now: number): {[string]: any}
@@ -1074,7 +1102,8 @@ function WeaponService:Destroy()
 
 	table.clear(self._statesByPlayer)
 	table.clear(self._activePlayers)
-	table.clear(self._slotRankByName)
+	self:_resetDamageScratch()
+	table.clear(self._damageBucketPool)
 end
 
 return WeaponService

@@ -160,11 +160,17 @@ function MobBrain:_Transition(nextState: MobState)
 end
 
 function MobBrain:_GetPosition(): Vector3
-	local root = resolveRoot(self._model)
-	if root ~= nil then
-		self._root = root
-		return root.Position
+	local cachedRoot = self._root
+	if cachedRoot ~= nil and cachedRoot.Parent ~= nil then
+		return cachedRoot.Position
 	end
+
+	local resolvedRoot = resolveRoot(self._model)
+	if resolvedRoot ~= nil then
+		self._root = resolvedRoot
+		return resolvedRoot.Position
+	end
+
 	return self._spawnOrigin
 end
 
