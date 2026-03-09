@@ -32,7 +32,7 @@ local Config: Config = {
 	DefaultRangeStuds = 12,
 	DamageMultiplier = 1,
 	RangePaddingStuds = 3,
-	AttackCatchUpLimitPerTick = 2,
+	AttackCatchUpLimitPerTick = 1,
 	InvalidTargetGraceSeconds = 0.6,
 }
 
