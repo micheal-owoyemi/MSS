@@ -93,6 +93,12 @@ local function extractPositionFromInstance(instance: Instance?): Vector3?
 	return nil
 end
 
+local function horizontalDistance(first: Vector3, second: Vector3): number
+	local dx = first.X - second.X
+	local dz = first.Z - second.Z
+	return math.sqrt((dx * dx) + (dz * dz))
+end
+
 function ZoneService:KnitInit()
 	self._config = Config
 	self._zoneDefs = ZoneDefs
@@ -218,19 +224,37 @@ end
 
 function ZoneService:_resolvePlayerZone(player: Player): (string?, string?)
 	local position = ZoneQueryHelper.GetPlayerPosition(player)
-	if position == nil then
-		return nil, "PlayerPositionUnavailable"
-	end
 
 	local now = os.clock()
 	local cacheRecord = self._zoneCacheByUserId[player.UserId]
+	local missingPositionGrace = math.max(0, tonumber(self._config.ZoneMissingPositionGraceSeconds) or 0)
+
+	if position == nil then
+		if cacheRecord ~= nil and cacheRecord.ZoneId ~= nil and now <= (cacheRecord.ExpiresAt + missingPositionGrace) then
+			return cacheRecord.ZoneId, nil
+		end
+		return nil, "PlayerPositionUnavailable"
+	end
+
 	if cacheRecord ~= nil and now <= cacheRecord.ExpiresAt then
-		if (position - cacheRecord.Position).Magnitude <= self._config.ZoneCacheReuseDistance then
+		if horizontalDistance(position, cacheRecord.Position) <= self._config.ZoneCacheReuseDistance then
 			return cacheRecord.ZoneId, nil
 		end
 	end
 
 	local zoneId = ZoneQueryHelper.GetContainingZoneId(position, self._config.ZonePadding)
+	if zoneId == nil and cacheRecord ~= nil and cacheRecord.ZoneId ~= nil then
+		local fallbackDistance = math.max(self._config.ZoneCacheReuseDistance, self._config.ZoneCacheReuseDistance * 2)
+		if horizontalDistance(position, cacheRecord.Position) <= fallbackDistance and now <= (cacheRecord.ExpiresAt + missingPositionGrace) then
+			self._zoneCacheByUserId[player.UserId] = {
+				ZoneId = cacheRecord.ZoneId,
+				Position = position,
+				ExpiresAt = now + self._config.ZoneCacheTtlSeconds,
+			}
+			return cacheRecord.ZoneId, nil
+		end
+	end
+
 	self._zoneCacheByUserId[player.UserId] = {
 		ZoneId = zoneId,
 		Position = position,
@@ -257,6 +281,15 @@ function ZoneService:IsPlayerInZone(player: Player, zoneId: string): (boolean, s
 	end
 	if not self:_zoneExists(zoneId) then
 		return false, "UnknownZone"
+	end
+
+	local resolvedZoneId, resolveReason = self:_resolvePlayerZone(player)
+	if resolvedZoneId ~= nil then
+		return resolvedZoneId == zoneId, nil
+	end
+
+	if resolveReason == "PlayerPositionUnavailable" then
+		return false, resolveReason
 	end
 
 	return ZoneQueryHelper.IsPlayerInZone(player, zoneId, self._config.ZonePadding), nil

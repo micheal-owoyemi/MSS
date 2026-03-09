@@ -64,6 +64,14 @@ local function parseXZ(rawXZ: any): Vector2?
 	return rawXZ
 end
 
+local function isFiniteNumber(value: number): boolean
+	return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+local function isFiniteVector2(value: Vector2): boolean
+	return isFiniteNumber(value.X) and isFiniteNumber(value.Y)
+end
+
 local function resolveModelNode(node: Instance?): Model?
 	if node == nil then
 		return nil
@@ -120,6 +128,10 @@ local function resolveTemplate(zoneId: string, mobDefId: string): Model?
 	return nil
 end
 
+local function templateCacheKey(zoneId: string, mobDefId: string): string
+	return string.format("%s::%s", zoneId, mobDefId)
+end
+
 local function getModelRoot(model: Model): BasePart?
 	if model.PrimaryPart ~= nil then
 		return model.PrimaryPart
@@ -141,6 +153,14 @@ local function applyModelPhysicalProps(model: Model)
 			descendant.CanTouch = false
 			descendant.CanQuery = false
 			descendant.Massless = true
+		end
+	end
+end
+
+local function stripExecutableDescendants(model: Model)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
+			descendant:Destroy()
 		end
 	end
 end
@@ -181,16 +201,28 @@ end
 
 local function setCommonAttributes(target: Instance, state: {[string]: any})
 	if state.h ~= nil then
-		target:SetAttribute("HP", tonumber(state.h) or 0)
+		local hp = tonumber(state.h) or 0
+		if target:GetAttribute("HP") ~= hp then
+			target:SetAttribute("HP", hp)
+		end
 	end
 	if state.mh ~= nil then
-		target:SetAttribute("MaxHP", tonumber(state.mh) or 0)
+		local maxHp = tonumber(state.mh) or 0
+		if target:GetAttribute("MaxHP") ~= maxHp then
+			target:SetAttribute("MaxHP", maxHp)
+		end
 	end
 	if state.st ~= nil then
-		target:SetAttribute("BrainState", tostring(state.st))
+		local brainState = tostring(state.st)
+		if target:GetAttribute("BrainState") ~= brainState then
+			target:SetAttribute("BrainState", brainState)
+		end
 	end
 	if state.z ~= nil then
-		target:SetAttribute("ZoneId", tostring(state.z))
+		local zoneId = tostring(state.z)
+		if target:GetAttribute("ZoneId") ~= zoneId then
+			target:SetAttribute("ZoneId", zoneId)
+		end
 	end
 end
 
@@ -234,6 +266,9 @@ function MobReplicationController:KnitInit()
 	self._pendingAddQueueTail = 0
 	self._lastPacketSequence = 0
 	self._warnedMissingTemplateByKey = {} :: {[string]: true}
+	self._pendingRemoveExpiresAtByMobId = {} :: {[string]: number}
+	self._templateCacheByKey = {} :: {[string]: Model}
+	self._pendingRemoveScratch = {} :: {string}
 end
 
 function MobReplicationController:KnitStart()
@@ -253,6 +288,7 @@ function MobReplicationController:_destroyVisual(mobId: string)
 	local existing = self._mobVisualById[mobId]
 	if existing == nil then
 		self._pendingAddByMobId[mobId] = nil
+		self._pendingRemoveExpiresAtByMobId[mobId] = nil
 		return
 	end
 
@@ -266,6 +302,43 @@ function MobReplicationController:_destroyVisual(mobId: string)
 
 	self._mobVisualById[mobId] = nil
 	self._pendingAddByMobId[mobId] = nil
+	self._pendingRemoveExpiresAtByMobId[mobId] = nil
+end
+
+function MobReplicationController:_cancelPendingRemove(mobId: string)
+	self._pendingRemoveExpiresAtByMobId[mobId] = nil
+end
+
+function MobReplicationController:_scheduleRemove(mobId: string, graceSeconds: number)
+	if typeof(mobId) ~= "string" or mobId == "" then
+		return
+	end
+
+	local resolvedGrace = math.max(0, graceSeconds)
+	if resolvedGrace <= 0 then
+		self:_destroyVisual(mobId)
+		return
+	end
+
+	self._pendingRemoveExpiresAtByMobId[mobId] = os.clock() + resolvedGrace
+end
+
+function MobReplicationController:_processPendingRemoves()
+	local now = os.clock()
+	local dueMobIds = self._pendingRemoveScratch
+	table.clear(dueMobIds)
+
+	for mobId, expiresAt in pairs(self._pendingRemoveExpiresAtByMobId) do
+		if now >= expiresAt then
+			table.insert(dueMobIds, mobId)
+		end
+	end
+
+	for _, mobId in ipairs(dueMobIds) do
+		if self._pendingRemoveExpiresAtByMobId[mobId] ~= nil then
+			self:_destroyVisual(mobId)
+		end
+	end
 end
 
 function MobReplicationController:_enqueuePendingAdd(state: {[string]: any})
@@ -273,6 +346,7 @@ function MobReplicationController:_enqueuePendingAdd(state: {[string]: any})
 	if typeof(mobId) ~= "string" then
 		return
 	end
+	self:_cancelPendingRemove(mobId)
 
 	local existingState = self._pendingAddByMobId[mobId]
 	if existingState ~= nil then
@@ -321,7 +395,7 @@ function MobReplicationController:_processPendingAdds()
 
 		local alive = addState.al
 		if alive == false then
-			self:_destroyVisual(mobId)
+			self:_scheduleRemove(mobId, Config.DeadRemoveGraceSeconds)
 			continue
 		end
 
@@ -335,13 +409,42 @@ function MobReplicationController:_processPendingAdds()
 	end
 end
 
+function MobReplicationController:_resolveTemplateCached(zoneId: string, mobDefId: string): Model?
+	local cacheKey = templateCacheKey(zoneId, mobDefId)
+	local cached = self._templateCacheByKey[cacheKey]
+	if cached ~= nil then
+		return cached
+	end
+
+	local sourceTemplate = resolveTemplate(zoneId, mobDefId)
+	if sourceTemplate == nil then
+		return nil
+	end
+
+	local prepared = sourceTemplate:Clone()
+	prepared.Name = sourceTemplate.Name
+	stripExecutableDescendants(prepared)
+	applyModelPhysicalProps(prepared)
+
+	local preparedRoot = getModelRoot(prepared)
+	if preparedRoot == nil then
+		prepared:Destroy()
+		return nil
+	end
+	prepared.PrimaryPart = preparedRoot
+	prepared.Parent = nil
+
+	self._templateCacheByKey[cacheKey] = prepared
+	return prepared
+end
+
 function MobReplicationController:_createVisual(
 	mobId: string,
 	zoneId: string,
 	mobDefId: string,
 	parent: Instance
 ): Model?
-	local template = resolveTemplate(zoneId, mobDefId)
+	local template = self:_resolveTemplateCached(zoneId, mobDefId)
 	if template == nil then
 		self:_warnMissingTemplateOnce(zoneId, mobDefId)
 		return nil
@@ -349,7 +452,6 @@ function MobReplicationController:_createVisual(
 
 	local clone = template:Clone()
 	clone.Name = mobId
-	applyModelPhysicalProps(clone)
 
 	local root = getModelRoot(clone)
 	if root == nil then
@@ -434,7 +536,7 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 
 	record.Revision = revision
 	local nextXZ = parseXZ(state.xz)
-	if nextXZ ~= nil then
+	if nextXZ ~= nil and isFiniteVector2(nextXZ) then
 		local now = os.clock()
 		local sampleDt = math.max(Config.MinVelocitySampleSeconds, now - record.LastTargetSampleAt)
 		local rawVelocity = (nextXZ - record.TargetXZ) / sampleDt
@@ -465,6 +567,7 @@ end
 
 function MobReplicationController:_stepSmoothing(dt: number)
 	self:_processPendingAdds()
+	self:_processPendingRemoves()
 
 	local alpha = 1 - math.exp(-Config.PositionSmoothingK * math.max(dt, 0))
 	alpha = math.clamp(alpha, Config.MinSmoothingAlpha, Config.MaxSmoothingAlpha)
@@ -511,7 +614,7 @@ function MobReplicationController:_handlePacket(packet: Packet)
 	if typeof(removes) == "table" then
 		for _, mobId in ipairs(removes) do
 			if typeof(mobId) == "string" then
-				self:_destroyVisual(mobId)
+				self:_scheduleRemove(mobId, Config.RelevanceRemoveGraceSeconds)
 			end
 		end
 	end
@@ -524,7 +627,7 @@ function MobReplicationController:_handlePacket(packet: Packet)
 				if alive == false then
 					local mobId = addState.id
 					if typeof(mobId) == "string" then
-						self:_destroyVisual(mobId)
+						self:_scheduleRemove(mobId, Config.DeadRemoveGraceSeconds)
 					end
 				else
 					self:_enqueuePendingAdd(addState)
@@ -540,8 +643,9 @@ function MobReplicationController:_handlePacket(packet: Packet)
 				local mobId = updateState.id
 				if typeof(mobId) == "string" then
 					if updateState.al == false then
-						self:_destroyVisual(mobId)
+						self:_scheduleRemove(mobId, Config.DeadRemoveGraceSeconds)
 					else
+						self:_cancelPendingRemove(mobId)
 						local record = self._mobVisualById[mobId]
 						if record ~= nil then
 							self:_applyState(record, updateState)
@@ -575,9 +679,15 @@ function MobReplicationController:Destroy()
 	end
 	table.clear(self._pendingAddByMobId)
 	table.clear(self._pendingAddQueue)
+	table.clear(self._pendingRemoveExpiresAtByMobId)
 	self._pendingAddQueueHead = 1
 	self._pendingAddQueueTail = 0
 	table.clear(self._warnedMissingTemplateByKey)
+	for cacheKey, template in pairs(self._templateCacheByKey) do
+		template:Destroy()
+		self._templateCacheByKey[cacheKey] = nil
+	end
+	table.clear(self._pendingRemoveScratch)
 end
 
 return MobReplicationController

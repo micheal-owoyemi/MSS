@@ -1,6 +1,5 @@
 --!strict
 
-local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
@@ -87,6 +86,11 @@ type MobRuntimeRecord = {
 	RespawnScheduleKey: string?,
 	ResolvingDeath: boolean,
 	Janitor: any,
+}
+
+type ZoneGraceCacheRecord = {
+	ZoneId: string,
+	ExpiresAt: number,
 }
 
 local MobService = Knit.CreateService({
@@ -192,6 +196,10 @@ local function facingVector3FromVector2(value: Vector2): Vector3
 	end
 	local unit = value.Unit
 	return Vector3.new(unit.X, 0, unit.Y)
+end
+
+local function isFiniteVector2(value: Vector2): boolean
+	return ValidationUtil.isFiniteNumber(value.X) and ValidationUtil.isFiniteNumber(value.Y)
 end
 
 local function sanitizeMobDef(rawMobDef: {[string]: any}, defaults: {[string]: any}): {[string]: any}
@@ -336,7 +344,10 @@ function MobService:KnitInit()
 	self._mobContainer = nil :: Instance?
 	self._mobById = {} :: {[string]: MobRuntimeRecord}
 	self._mobIdsByZone = {} :: {[string]: {[string]: true}}
+	self._sortedMobIdsCacheByZone = {} :: {[string]: {string}}
+	self._sortedMobIdsDirtyByZone = {} :: {[string]: true}
 	self._attackerMobIdsByUserId = {} :: {[number]: {[string]: true}}
+	self._activePlayers = {} :: {[Player]: true}
 
 	self._simulationAccumulator = 0
 	self._replicationAccumulator = 0
@@ -348,6 +359,7 @@ function MobService:KnitInit()
 	self._spawnQueueByMobId = {} :: {[string]: true}
 	self._zonePopulationById = {} :: {[string]: number}
 	self._lastZonePopulationRefreshAt = 0
+	self._replicationZoneCacheByUserId = {} :: {[number]: ZoneGraceCacheRecord}
 
 	self._serviceJanitor = Janitor.new()
 	self._rng = Random.new()
@@ -399,14 +411,17 @@ function MobService:KnitStart()
 end
 
 function MobService:_onPlayerAdded(player: Player)
+	self._activePlayers[player] = true
 	self._replicationBuffer:ResetPlayer(player.UserId)
 	self._lastZonePopulationRefreshAt = 0
 end
 
 function MobService:_onPlayerRemoving(player: Player)
+	self._activePlayers[player] = nil
 	self:_clearPlayerAsAttacker(player)
 	self._replicationBuffer:ResetPlayer(player.UserId)
 	self._lastZonePopulationRefreshAt = 0
+	self._replicationZoneCacheByUserId[player.UserId] = nil
 end
 
 function MobService:_respawnScheduleKey(mobId: string): string
@@ -511,7 +526,7 @@ function MobService:_refreshZonePopulation(now: number)
 		return
 	end
 
-	for _, player in ipairs(Players:GetPlayers()) do
+	for player in pairs(self._activePlayers) do
 		local zoneId, _ = zoneService:GetPlayerZone(player)
 		if ValidationUtil.isNonEmptyString(zoneId) then
 			local key = zoneId :: string
@@ -527,6 +542,7 @@ function MobService:_registerMobInZone(zoneId: string, mobId: string)
 		self._mobIdsByZone[zoneId] = zoneSet
 	end
 	zoneSet[mobId] = true
+	self._sortedMobIdsDirtyByZone[zoneId] = true
 end
 
 function MobService:_unregisterMobFromZone(zoneId: string, mobId: string)
@@ -537,7 +553,81 @@ function MobService:_unregisterMobFromZone(zoneId: string, mobId: string)
 	zoneSet[mobId] = nil
 	if next(zoneSet) == nil then
 		self._mobIdsByZone[zoneId] = nil
+		self._sortedMobIdsCacheByZone[zoneId] = nil
+		self._sortedMobIdsDirtyByZone[zoneId] = nil
+		return
 	end
+	self._sortedMobIdsDirtyByZone[zoneId] = true
+end
+
+function MobService:_getSortedMobIdsForZone(zoneId: string): {string}
+	local cached = self._sortedMobIdsCacheByZone[zoneId]
+	if cached ~= nil and self._sortedMobIdsDirtyByZone[zoneId] ~= true then
+		return cached
+	end
+
+	local zoneSet = self._mobIdsByZone[zoneId]
+	if zoneSet == nil then
+		local empty = {}
+		self._sortedMobIdsCacheByZone[zoneId] = empty
+		self._sortedMobIdsDirtyByZone[zoneId] = nil
+		return empty
+	end
+
+	local sorted = {}
+	for mobId in pairs(zoneSet) do
+		table.insert(sorted, mobId)
+	end
+	table.sort(sorted)
+
+	self._sortedMobIdsCacheByZone[zoneId] = sorted
+	self._sortedMobIdsDirtyByZone[zoneId] = nil
+	return sorted
+end
+
+function MobService:_resolveReplicationZoneIdForPlayer(player: Player, now: number): string?
+	local zoneId: string? = nil
+	local zoneService = self._zoneService
+	if zoneService ~= nil then
+		local resolvedZoneId = zoneService:GetPlayerZone(player)
+		if ValidationUtil.isNonEmptyString(resolvedZoneId) then
+			zoneId = resolvedZoneId
+		end
+	end
+
+	local userId = player.UserId
+	if zoneId ~= nil then
+		self._replicationZoneCacheByUserId[userId] = {
+			ZoneId = zoneId,
+			ExpiresAt = now + math.max(0, tonumber(self._config.ReplicationZoneGraceSeconds) or 0),
+		}
+		return zoneId
+	end
+
+	local cached = self._replicationZoneCacheByUserId[userId]
+	if cached ~= nil and now <= cached.ExpiresAt then
+		return cached.ZoneId
+	end
+
+	self._replicationZoneCacheByUserId[userId] = nil
+	return nil
+end
+
+function MobService:_buildAliveMobIdsForZone(zoneId: string): {string}
+	local sortedZoneMobIds = self:_getSortedMobIdsForZone(zoneId)
+	if #sortedZoneMobIds == 0 then
+		return {}
+	end
+
+	local mobIds = table.create(#sortedZoneMobIds)
+	for _, mobId in ipairs(sortedZoneMobIds) do
+		local record = self._mobById[mobId]
+		if record ~= nil and record.ClientState.Alive == true then
+			table.insert(mobIds, mobId)
+		end
+	end
+
+	return mobIds
 end
 
 function MobService:_newClientState(mobId: string, zoneId: string, spawnIndex: number, spawnOrigin: Vector3): MobClientState
@@ -592,7 +682,8 @@ function MobService:_setAuthoritativePosition(
 		changed = true
 	end
 
-	if (position - clientState.Position).Magnitude^2 > self._positionThresholdSquared then
+	local positionDelta = position - clientState.Position
+	if positionDelta:Dot(positionDelta) > self._positionThresholdSquared then
 		clientState.Position = position
 		changed = true
 	end
@@ -632,33 +723,65 @@ function MobService:_syncStateFromModelAndBrain(record: MobRuntimeRecord, now: n
 	local clientState = record.ClientState
 	local serverState = record.ServerState
 	local changed = false
+	local currentTargetPlayer: Player? = nil
 
 	local brain = record.Brain
 	if brain ~= nil then
 		local brainState = brain:GetState()
+		currentTargetPlayer = brain:GetCurrentTarget()
+		if currentTargetPlayer ~= nil and brainState ~= "Dead" then
+			brainState = "Engaged"
+		end
+
 		if brainState ~= clientState.BrainState then
 			clientState.BrainState = brainState
 			changed = true
 		end
 
-		local targetPlayer = brain:GetCurrentTarget()
-		local targetUserId = if targetPlayer ~= nil then targetPlayer.UserId else nil
+		local targetUserId = if currentTargetPlayer ~= nil then currentTargetPlayer.UserId else nil
 		if targetUserId ~= clientState.TargetUserId then
 			clientState.TargetUserId = targetUserId
 			changed = true
 		end
 	end
 
-	local combatAuthority = self:_hasAttackers(record)
+	local combatAuthority = self:_hasAttackers(record) and currentTargetPlayer ~= nil
 	if combatAuthority then
 		local nextPosition, nextFacing = resolveModelPositionAndFacing(
 			record.Model,
 			vector3FromXZ(serverState.PositionXZ, serverState.GroundY),
 			clientState.Facing
 		)
+		local fallbackXZ = serverState.PositionXZ
+		local candidateXZ = vector2FromVector3(nextPosition)
+		if not isFiniteVector2(candidateXZ) then
+			candidateXZ = fallbackXZ
+		end
+
+		local clampXZToZone = ZoneQueryHelper.ClampXZToZone
+		if typeof(clampXZToZone) == "function" then
+			local clampedXZ = clampXZToZone(candidateXZ, record.ZoneId, 0)
+			if clampedXZ ~= nil then
+				candidateXZ = clampedXZ
+			end
+		end
+
+		local maxStep = math.max(0, tonumber(self._config.MaxCombatSyncStepStuds) or 0)
+		if maxStep > 0 then
+			local delta = candidateXZ - fallbackXZ
+			local distance = delta.Magnitude
+			if distance > maxStep and distance > 1e-4 then
+				candidateXZ = fallbackXZ + (delta.Unit * maxStep)
+			end
+		end
+
+		-- Server proxy roots are non-collidable; keep combat authority constrained to the
+		-- zone ground plane so assignment/chase cannot drag replicated visuals underground.
+		nextPosition = vector3FromXZ(candidateXZ, serverState.GroundY)
 		if self:_setAuthoritativePosition(record, nextPosition, nextFacing) then
 			changed = true
 		end
+		self:_syncModelToAuthoritative(record)
 	else
 		local authoritativePosition = vector3FromXZ(serverState.PositionXZ, serverState.GroundY)
 		if self:_setAuthoritativePosition(record, authoritativePosition, facingVector3FromVector2(serverState.FacingXZ)) then
@@ -1741,35 +1864,46 @@ function MobService:_serializeMobUpdateState(mobId: string): {[string]: any}?
 	return StateSerializer.SerializeUpdate(record.ClientState)
 end
 
-function MobService:_getRelevantMobIdsForPlayer(player: Player): {string}
-	local zoneId: string? = nil
-	local zoneService = self._zoneService
-	if zoneService ~= nil then
-		local resolvedZoneId = zoneService:GetPlayerZone(player)
-		if ValidationUtil.isNonEmptyString(resolvedZoneId) then
-			zoneId = resolvedZoneId
-		end
-	end
-
+function MobService:_getRelevantMobIdsForPlayer(
+	player: Player,
+	now: number?,
+	aliveMobIdsByZone: {[string]: {string}}?
+): {string}
+	local resolvedNow = if ValidationUtil.isFiniteNumber(now) then (now :: number) else os.clock()
+	local zoneId = self:_resolveReplicationZoneIdForPlayer(player, resolvedNow)
 	if zoneId == nil then
 		return {}
 	end
 
-	local zoneSet = self._mobIdsByZone[zoneId]
-	if zoneSet == nil then
+	local distanceLimit = self._config.ReplicationDistanceLimitStuds
+	if distanceLimit <= 0 then
+		if aliveMobIdsByZone ~= nil then
+			local cachedAlive = aliveMobIdsByZone[zoneId]
+			if cachedAlive ~= nil then
+				return cachedAlive
+			end
+			local builtAlive = self:_buildAliveMobIdsForZone(zoneId)
+			aliveMobIdsByZone[zoneId] = builtAlive
+			return builtAlive
+		end
+		return self:_buildAliveMobIdsForZone(zoneId)
+	end
+
+	local sortedZoneMobIds = self:_getSortedMobIdsForZone(zoneId)
+	if #sortedZoneMobIds == 0 then
 		return {}
 	end
 
-	local distanceLimit = self._config.ReplicationDistanceLimitStuds
 	local playerPosition = if distanceLimit > 0 then resolveCharacterRootPosition(player) else nil
 	local limitSquared = distanceLimit * distanceLimit
 
-	local mobIds = {}
-	for mobId in pairs(zoneSet) do
+	local mobIds = table.create(#sortedZoneMobIds)
+	for _, mobId in ipairs(sortedZoneMobIds) do
 		local record = self._mobById[mobId]
 		if record ~= nil and record.ClientState.Alive == true then
 			if playerPosition ~= nil and distanceLimit > 0 then
-				if (record.ClientState.Position - playerPosition).Magnitude^2 <= limitSquared then
+				local delta = record.ClientState.Position - playerPosition
+				if delta:Dot(delta) <= limitSquared then
 					table.insert(mobIds, mobId)
 				end
 			else
@@ -1778,7 +1912,6 @@ function MobService:_getRelevantMobIdsForPlayer(player: Player): {string}
 		end
 	end
 
-	table.sort(mobIds)
 	return mobIds
 end
 
@@ -1791,9 +1924,10 @@ function MobService:FlushReplicationBuffers(now: number, dt: number)
 
 	while self._replicationAccumulator >= flushInterval do
 		self._replicationAccumulator -= flushInterval
+		local zoneAliveCache = {} :: {[string]: {string}}
 
-		for _, player in ipairs(Players:GetPlayers()) do
-			local relevantMobIds = self:_getRelevantMobIdsForPlayer(player)
+		for player in pairs(self._activePlayers) do
+			local relevantMobIds = self:_getRelevantMobIdsForPlayer(player, now, zoneAliveCache)
 			local packet = self._replicationBuffer:BuildPacketForPlayer(
 				player.UserId,
 				now,
@@ -1961,10 +2095,14 @@ function MobService:Destroy()
 
 	table.clear(self._mobById)
 	table.clear(self._mobIdsByZone)
+	table.clear(self._sortedMobIdsCacheByZone)
+	table.clear(self._sortedMobIdsDirtyByZone)
 	table.clear(self._attackerMobIdsByUserId)
+	table.clear(self._activePlayers)
 	table.clear(self._spawnQueue)
 	table.clear(self._spawnQueueByMobId)
 	table.clear(self._zonePopulationById)
+	table.clear(self._replicationZoneCacheByUserId)
 	self._spawnQueueHead = 1
 	self._spawnQueueTail = 0
 	self._lastZonePopulationRefreshAt = 0

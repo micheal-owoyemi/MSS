@@ -7,6 +7,10 @@ local STATE_TO_ANIMATION_NAME = table.freeze({
 	Idle = "Idle",
 	RoamMove = "Roam",
 	Roam = "Roam",
+	Chase = "Roam",
+	Attack = "Roam",
+	Return = "Roam",
+	Engaged = "Roam",
 })
 
 local MobAnimationPlayer = {}

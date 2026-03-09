@@ -15,6 +15,7 @@ export type Config = {
 	DamageMultiplier: number,
 	RangePaddingStuds: number,
 	AttackCatchUpLimitPerTick: number,
+	InvalidTargetGraceSeconds: number,
 }
 
 local Config: Config = {
@@ -32,6 +33,7 @@ local Config: Config = {
 	DamageMultiplier = 1,
 	RangePaddingStuds = 3,
 	AttackCatchUpLimitPerTick = 2,
+	InvalidTargetGraceSeconds = 0.6,
 }
 
 return table.freeze(Config)

@@ -53,6 +53,7 @@ type WeaponRuntime = {
 	Range: number,
 	TargetMobId: string?,
 	NextAttackAt: number,
+	LastValidTargetAt: number,
 	QueueIndex: number,
 }
 
@@ -157,6 +158,8 @@ local function normalizeMode(rawMode: any): string
 	return "Single"
 end
 
+local NIL_CACHE_SENTINEL = {}
+
 function WeaponService:KnitInit()
 	self._config = Config
 	self._weaponDefs = WeaponDefs
@@ -169,8 +172,8 @@ function WeaponService:KnitInit()
 
 	self._serviceJanitor = Janitor.new()
 	self._requestRateLimiter = RateLimiter.new()
-	self._statesByUserId = {} :: {[number]: PlayerRuntimeState}
 	self._statesByPlayer = {} :: {[Player]: PlayerRuntimeState}
+	self._activePlayers = {} :: {[Player]: true}
 	self._slotRankByName = {} :: {[string]: number}
 	self._replicationAccumulator = 0
 	self._equipmentRefreshAccumulator = 0
@@ -227,9 +230,6 @@ function WeaponService:_newState(player: Player): PlayerRuntimeState
 		if self._statesByPlayer[player] == state then
 			self._statesByPlayer[player] = nil
 		end
-		if self._statesByUserId[player.UserId] == state then
-			self._statesByUserId[player.UserId] = nil
-		end
 	end)
 
 	return state
@@ -243,7 +243,6 @@ function WeaponService:_getOrCreateState(player: Player): PlayerRuntimeState
 
 	local state = self:_newState(player)
 	self._statesByPlayer[player] = state
-	self._statesByUserId[player.UserId] = state
 	return state
 end
 
@@ -325,6 +324,7 @@ function WeaponService:_assignWeaponToMob(state: PlayerRuntimeState, weapon: Wea
 
 	weapon.TargetMobId = mobId
 	weapon.NextAttackAt = math.min(weapon.NextAttackAt, now)
+	weapon.LastValidTargetAt = now
 	return true, true, nil
 end
 
@@ -382,10 +382,12 @@ function WeaponService:_resolveMobTargetValidity(player: Player, mobId: string):
 	if mobRecord == nil then
 		return false, "MobNotFound"
 	end
-
-	local attackable, attackableReason = mobService:IsMobAttackable(mobId)
-	if not attackable then
-		return false, attackableReason or "MobNotAttackable"
+	local clientState = mobRecord.ClientState
+	if clientState == nil or clientState.Alive ~= true then
+		return false, "MobDead"
+	end
+	if clientState.Attackable ~= true then
+		return false, "MobNotAttackable"
 	end
 
 	local validForZone, zoneReason = zoneService:IsMobTargetValidForZone(mobRecord, player)
@@ -525,6 +527,7 @@ function WeaponService:_syncPlayerEquipmentState(player: Player, force: boolean?
 			Range = resolvedWeapon.Range,
 			TargetMobId = nil,
 			NextAttackAt = nextAttackAt,
+			LastValidTargetAt = now,
 			QueueIndex = queueIndex,
 		}
 
@@ -560,10 +563,12 @@ function WeaponService:_syncPlayerEquipmentState(player: Player, force: boolean?
 end
 
 function WeaponService:_onPlayerAdded(player: Player)
+	self._activePlayers[player] = true
 	self:_syncPlayerEquipmentState(player, true)
 end
 
 function WeaponService:_onPlayerRemoving(player: Player)
+	self._activePlayers[player] = nil
 	self:_destroyState(player)
 end
 
@@ -819,17 +824,10 @@ function WeaponService:ClearTarget(player: Player): (boolean, string?)
 	return true, nil
 end
 
-function WeaponService:_isWeaponInRange(player: Player, weapon: WeaponRuntime, mobRecord: any): boolean
-	local playerPosition = resolveCharacterRootPosition(player)
-	if playerPosition == nil then
+function WeaponService:_isWeaponInRange(weapon: WeaponRuntime, playerPosition: Vector3?, mobPosition: Vector3?): boolean
+	if playerPosition == nil or mobPosition == nil then
 		return false
 	end
-
-	local mobPosition = extractMobPosition(mobRecord)
-	if mobPosition == nil then
-		return false
-	end
-
 	return CombatMath.isWithinRange(playerPosition, mobPosition, weapon.Range, self._config.RangePaddingStuds)
 end
 
@@ -842,8 +840,57 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 
 	local stateChanged = false
 	local mobService = self._mobService
+	local zoneService = self._zoneService
 	if mobService == nil then
 		return
+	end
+
+	local playerPosition = resolveCharacterRootPosition(player)
+	local targetValidityByMobId = {} :: {[string]: boolean}
+	local mobRecordByMobId = {} :: {[string]: any}
+	local mobPositionByMobId = {} :: {[string]: any}
+
+	local function isTargetValidCached(mobId: string): boolean
+		local cached = targetValidityByMobId[mobId]
+		if cached ~= nil then
+			return cached
+		end
+
+		local mobRecord = mobService:GetMobById(mobId)
+		if mobRecord == nil then
+			targetValidityByMobId[mobId] = false
+			return false
+		end
+		local clientState = mobRecord.ClientState
+		if clientState == nil or clientState.Alive ~= true or clientState.Attackable ~= true then
+			targetValidityByMobId[mobId] = false
+			return false
+		end
+
+		if zoneService ~= nil then
+			local validForZone, _ = zoneService:IsMobTargetValidForZone(mobRecord, player)
+			if not validForZone then
+				targetValidityByMobId[mobId] = false
+				return false
+			end
+		end
+
+		targetValidityByMobId[mobId] = true
+		mobRecordByMobId[mobId] = mobRecord
+		return true
+	end
+
+	local function getMobPositionCached(mobId: string, mobRecord: any): Vector3?
+		local cachedPosition = mobPositionByMobId[mobId]
+		if cachedPosition ~= nil then
+			if cachedPosition == NIL_CACHE_SENTINEL then
+				return nil
+			end
+			return cachedPosition
+		end
+		local resolved = extractMobPosition(mobRecord)
+		mobPositionByMobId[mobId] = if resolved ~= nil then resolved else NIL_CACHE_SENTINEL
+		return resolved
 	end
 
 	for _, uid in ipairs(state.OrderedWeaponUids) do
@@ -851,37 +898,47 @@ function WeaponService:_stepPlayerState(now: number, state: PlayerRuntimeState, 
 		if weapon ~= nil then
 			local targetMobId = weapon.TargetMobId
 			if targetMobId ~= nil then
-				local stillValid = self:_resolveMobTargetValidity(player, targetMobId)
+				local stillValid = isTargetValidCached(targetMobId)
 				if not stillValid then
-					stateChanged = self:_unsetWeaponTarget(state, weapon) or stateChanged
-				else
-					local mobRecord = mobService:GetMobById(targetMobId)
-					if mobRecord == nil then
+					local invalidForSeconds = now - (weapon.LastValidTargetAt or now)
+					if invalidForSeconds >= self._config.InvalidTargetGraceSeconds then
 						stateChanged = self:_unsetWeaponTarget(state, weapon) or stateChanged
+					end
+				else
+					local mobRecord = mobRecordByMobId[targetMobId]
+					if mobRecord == nil then
+						local invalidForSeconds = now - (weapon.LastValidTargetAt or now)
+						if invalidForSeconds >= self._config.InvalidTargetGraceSeconds then
+							stateChanged = self:_unsetWeaponTarget(state, weapon) or stateChanged
+						end
 					else
+						weapon.LastValidTargetAt = now
 						local cadence = weapon.Cadence
 						local interval = CombatMath.cadenceToInterval(cadence)
-						if interval ~= math.huge then
+						if interval ~= math.huge and interval > 0 then
 							local nextAttackAt = weapon.NextAttackAt
 							if not ValidationUtil.isFiniteNumber(nextAttackAt) then
 								nextAttackAt = now
 							end
 
-							local attacksProcessed = 0
-							while now >= nextAttackAt and attacksProcessed < self._config.AttackCatchUpLimitPerTick do
-								if self:_isWeaponInRange(player, weapon, mobRecord) then
-									local damage = CombatMath.computeDamage(weapon.BaseDps, cadence, self._config.DamageMultiplier, 0)
-									if damage > 0 then
-										local byPlayer = damageByMobId[targetMobId]
-										if byPlayer == nil then
-											byPlayer = {}
-											damageByMobId[targetMobId] = byPlayer
+							if now >= nextAttackAt then
+								local due = math.floor(((now - nextAttackAt) / interval) + 1)
+								local attacksDue = math.max(0, math.min(self._config.AttackCatchUpLimitPerTick, due))
+								if attacksDue > 0 then
+									local mobPosition = getMobPositionCached(targetMobId, mobRecord)
+									if self:_isWeaponInRange(weapon, playerPosition, mobPosition) then
+										local damagePerAttack = CombatMath.computeDamage(weapon.BaseDps, cadence, self._config.DamageMultiplier, 0)
+										if damagePerAttack > 0 then
+											local byPlayer = damageByMobId[targetMobId]
+											if byPlayer == nil then
+												byPlayer = {}
+												damageByMobId[targetMobId] = byPlayer
+											end
+											byPlayer[player] = (byPlayer[player] or 0) + (damagePerAttack * attacksDue)
 										end
-										byPlayer[player] = (byPlayer[player] or 0) + damage
 									end
+									nextAttackAt += interval * attacksDue
 								end
-								nextAttackAt += interval
-								attacksProcessed += 1
 							end
 
 							weapon.NextAttackAt = nextAttackAt
@@ -913,7 +970,7 @@ function WeaponService:StepSimulation(now: number, dt: number)
 
 	local damageByMobId: {[string]: {[Player]: number}} = {}
 
-	for _, player in ipairs(Players:GetPlayers()) do
+	for player in pairs(self._activePlayers) do
 		local state = self._statesByPlayer[player]
 		if state == nil then
 			local createdState = self:_getOrCreateState(player)
@@ -975,7 +1032,7 @@ function WeaponService:FlushReplication(now: number, dt: number)
 	while self._replicationAccumulator >= flushInterval do
 		self._replicationAccumulator -= flushInterval
 
-		for _, player in ipairs(Players:GetPlayers()) do
+		for player in pairs(self._activePlayers) do
 			local state = self._statesByPlayer[player]
 			if state == nil then
 				local createdState = self:_getOrCreateState(player)
@@ -1010,13 +1067,13 @@ function WeaponService:Destroy()
 		self._requestRateLimiter:Destroy()
 	end
 
-	for _, state in pairs(self._statesByUserId) do
+	for _, state in pairs(self._statesByPlayer) do
 		self:_releaseStateAssignments(state)
 		state.Janitor:Cleanup()
 	end
 
-	table.clear(self._statesByUserId)
 	table.clear(self._statesByPlayer)
+	table.clear(self._activePlayers)
 	table.clear(self._slotRankByName)
 end
 

@@ -334,10 +334,8 @@ function MobBrain:Step(now: number?)
 		return
 	end
 
-	if self._humanoid ~= nil and self._humanoid.Health <= 0 then
-		self:MarkDead(currentNow)
-		return
-	end
+	-- Proxy humanoids are movement helpers only; authoritative death is resolved by MobService HP.
+	-- Do not derive death from proxy humanoid health/state.
 
 	local target = self._currentTarget
 	if not self:_IsTargetValid(target) then

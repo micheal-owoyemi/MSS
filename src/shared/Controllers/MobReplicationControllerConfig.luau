@@ -13,6 +13,8 @@ export type Config = {
 	SnapDistanceStuds: number,
 	MinVelocitySampleSeconds: number,
 	MaxVisualCreatesPerFrame: number,
+	RelevanceRemoveGraceSeconds: number,
+	DeadRemoveGraceSeconds: number,
 }
 
 local Config: Config = {
@@ -26,6 +28,8 @@ local Config: Config = {
 	MaxPredictedSpeedStudsPerSecond = 35, -- Cap on extrapolated speed used for prediction.
 	MaxCatchUpSpeedStudsPerSecond = 120, -- Cap render-step catch-up speed to avoid visible jumps.
 	MaxVisualCreatesPerFrame = 1, -- Limit new mob model creations per render frame to reduce GPU spikes.
+	RelevanceRemoveGraceSeconds = 0.6, -- Delay hard-destroy for rm packets to absorb transient relevance flicker.
+	DeadRemoveGraceSeconds = 0.12, -- Small delay for al=false to avoid one-frame false negatives.
 	ModelRenderRootPath = {"Game", "MobsClient"}, -- Workspace path for client-rendered mob models.
 
 	-- RARELY TWEAK (fallback safety)

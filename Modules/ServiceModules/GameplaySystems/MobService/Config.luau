@@ -11,6 +11,7 @@ export type Config = {
 	MaxUpdatesPerFlushPerPlayer: number,
 	MaxRemovesPerFlushPerPlayer: number,
 	MaxTotalMobEntriesPerFlush: number,
+	ReplicationZoneGraceSeconds: number,
 	MaxDamagePerHit: number,
 	MinDamagePerHit: number,
 	DefaultRespawnDelaySeconds: number,
@@ -39,6 +40,7 @@ export type Config = {
 	SpawnIgnoreSeparationAfterFailures: number,
 	SpawnZoneInsetStuds: number,
 	ZoneContainmentPadding: number,
+	MaxCombatSyncStepStuds: number,
 	RoamIdleMinSeconds: number,
 	RoamIdleMaxSeconds: number,
 	RoamMoveDurationMinSeconds: number,
@@ -60,7 +62,7 @@ export type Config = {
 
 local Config: Config = {
 	-- MOST LIKELY TO TWEAK (movement feel / smoothness)
-	SimulationStepIntervalSeconds = 1/60, -- Server sim step size. Lower = smoother (e.g. 1/30 or 1/60).
+	SimulationStepIntervalSeconds = 1/20, -- Server sim step size; aligned with manager cadence to avoid catch-up thrash.
 	ReplicationFlushIntervalSeconds = 0.2, -- How often mob deltas are flushed to clients.
 	ReplicationDistanceLimitStuds = 0, -- 0 disables distance culling; replicate all mobs in the player's current zone.
 	RoamSpeedMultiplier = 0.5, -- Global multiplier for roam speed (applied to MobDefs.MoveSpeed).
@@ -94,13 +96,15 @@ local Config: Config = {
 	RoamCollisionRadius = 2.25, -- Roam step collision check radius.
 	RoamCollisionHeight = 6, -- Roam step collision check height.
 	ZoneContainmentPadding = 0, -- Extra bounds padding for zone containment checks.
+	MaxCombatSyncStepStuds = 8, -- Max horizontal step accepted from proxy combat movement per sim step.
 
 	-- RARELY TWEAKED (network budgets / safety / combat guards)
-	MaxSimulationStepsPerTick = 3, -- Caps catch-up sim loops in a single manager tick.
+	MaxSimulationStepsPerTick = 2, -- Caps catch-up sim loops in a single manager tick.
 	MaxAddsPerFlushPerPlayer = 20, -- Per-flush cap on newly visible mobs per player.
 	MaxUpdatesPerFlushPerPlayer = 30, -- Per-flush cap on update entries per player.
 	MaxRemovesPerFlushPerPlayer = 30, -- Per-flush cap on remove entries per player.
 	MaxTotalMobEntriesPerFlush = 50, -- Hard ceiling per packet build.
+	ReplicationZoneGraceSeconds = 2.0, -- Keep last known zone through brief zone-resolution jitter to prevent transient client removals.
 	PositionChangeThresholdStuds = 0.2, -- Threshold for position-change revision bumps.
 	FacingDotThreshold = 0.999, -- Facing-change sensitivity (dot product threshold).
 	MinDamagePerHit = 0.01, -- Reject damage below this amount.

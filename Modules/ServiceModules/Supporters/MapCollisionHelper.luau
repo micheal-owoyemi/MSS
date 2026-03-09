@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 
 local MAP_ROOT_PATH = {"Game", "Map"}
 local ENVIRONMENT_FOLDER_NAME = "Environment"
+local BaseplatePartCache = setmetatable({}, {__mode = "k"}) :: {[BasePart]: boolean}
 
 type ZoneQueryRecord = {
 	MapZoneFolder: Instance?,
@@ -126,11 +127,19 @@ function MapCollisionHelper.ResolveMapZoneFolder(zoneId: string): Instance?
 end
 
 function MapCollisionHelper.IsBaseplatePart(part: BasePart): boolean
+	local cached = BaseplatePartCache[part]
+	if cached ~= nil then
+		return cached
+	end
+
 	local loweredName = string.lower(part.Name)
 	if string.find(loweredName, "baseplate", 1, true) ~= nil then
+		BaseplatePartCache[part] = true
 		return true
 	end
-	return part:GetAttribute("IsBaseplate") == true
+	local isBaseplate = part:GetAttribute("IsBaseplate") == true
+	BaseplatePartCache[part] = isBaseplate
+	return isBaseplate
 end
 
 function MapCollisionHelper.IsPositionObstructed(
@@ -191,6 +200,7 @@ end
 
 function MapCollisionHelper.ResetAll()
 	table.clear(ZoneQueryById)
+	table.clear(BaseplatePartCache)
 end
 
 return MapCollisionHelper

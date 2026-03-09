@@ -59,6 +59,8 @@ local WeaponController = Knit.CreateController({
 	Name = "WeaponController",
 })
 
+local MOB_POSITION_GRACE_SECONDS = 0.45
+
 local function resolvePath(root: Instance, segments: {string}): Instance?
 	local cursor: Instance? = root
 	for _, segment in ipairs(segments) do
@@ -125,6 +127,13 @@ local function safeUnitHorizontal(vector: Vector3, fallback: Vector3): Vector3
 	return horizontal.Unit
 end
 
+local function sortWeaponByQueue(a: WeaponState, b: WeaponState): boolean
+	if a.QueueIndex == b.QueueIndex then
+		return a.Uid < b.Uid
+	end
+	return a.QueueIndex < b.QueueIndex
+end
+
 local function resolveInstanceWorldPosition(target: Instance): Vector3?
 	if target:IsA("BasePart") then
 		return target.Position
@@ -159,11 +168,21 @@ function WeaponController:KnitInit()
 	self._serverMobsRoot = nil :: Instance?
 	self._weaponStateByUid = {} :: {[string]: WeaponState}
 	self._visualByUid = {} :: {[string]: WeaponVisualRecord}
+	self._uidHashByUid = {} :: {[string]: number}
+	self._layoutDirty = true
+	self._cachedUnassignedWeapons = {} :: {WeaponState}
+	self._cachedAssignedWeaponsByMobId = {} :: {[string]: {WeaponState}}
 	self._ownerOffsetRadians = ((self._player.UserId % 360) / 360) * math.pi * 2
 	self._hoverMobId = nil :: string?
 	self._lastClickMobId = nil :: string?
 	self._lastClickAt = 0
 	self._lastRevision = 0
+	self._lastHoverFallbackScanAt = 0
+	self._lastHoverResolvedAt = 0
+	self._mobPositionCacheById = {} :: {[string]: {Position: Vector3, ExpiresAt: number}}
+	self._mobInstanceById = {} :: {[string]: Instance}
+	self._desiredPositionByUid = {} :: {[string]: Vector3}
+	self._desiredFacingByUid = {} :: {[string]: Vector3}
 end
 
 function WeaponController:KnitStart()
@@ -184,6 +203,15 @@ function WeaponController:KnitStart()
 	self._janitor:Add(RunService.RenderStepped:Connect(function(dt: number)
 		self:_stepRender(dt)
 	end), "Disconnect", "RenderSteppedConnection")
+end
+
+function WeaponController:_refreshSceneRoots()
+	if self._mobsClientRoot == nil or self._mobsClientRoot.Parent == nil then
+		self._mobsClientRoot = resolvePath(Workspace, Config.MobsClientRootPath)
+	end
+	if self._serverMobsRoot == nil or self._serverMobsRoot.Parent == nil then
+		self._serverMobsRoot = resolvePath(Workspace, Config.ServerMobsRootPath)
+	end
 end
 
 function WeaponController:_resolveMobIdFromInstance(target: Instance?): string?
@@ -216,7 +244,7 @@ function WeaponController:_resolveMobIdFromInstance(target: Instance?): string?
 	return nil
 end
 
-function WeaponController:_resolveHoverMobId(): string?
+function WeaponController:_resolveHoverMobId(now: number): string?
 	local mouse = self._mouse
 	if mouse == nil then
 		return nil
@@ -226,9 +254,18 @@ function WeaponController:_resolveHoverMobId(): string?
 	if target ~= nil then
 		local mobId = self:_resolveMobIdFromInstance(target)
 		if mobId ~= nil then
+			self._lastHoverResolvedAt = now
 			return mobId
 		end
 	end
+
+	if (now - self._lastHoverFallbackScanAt) < math.max(0, Config.HoverFallbackScanIntervalSeconds) then
+		if self._hoverMobId ~= nil and (now - self._lastHoverResolvedAt) <= math.max(0, Config.HoverCacheGraceSeconds) then
+			return self._hoverMobId
+		end
+		return nil
+	end
+	self._lastHoverFallbackScanAt = now
 
 	local camera = Workspace.CurrentCamera
 	if camera == nil then
@@ -276,6 +313,9 @@ function WeaponController:_resolveHoverMobId(): string?
 		considerRoot(self._serverMobsRoot)
 	end
 
+	if bestMobId ~= nil then
+		self._lastHoverResolvedAt = now
+	end
 	return bestMobId
 end
 
@@ -303,15 +343,16 @@ function WeaponController:_onInputBegan(input: InputObject, gameProcessed: boole
 		return
 	end
 
+	local now = os.clock()
 	local hoverMobId = self._hoverMobId
 	if hoverMobId == nil then
-		hoverMobId = self:_resolveHoverMobId()
+		self:_refreshSceneRoots()
+		hoverMobId = self:_resolveHoverMobId(now)
 	end
 	if hoverMobId == nil then
 		return
 	end
 
-	local now = os.clock()
 	local mode = "Single"
 	if self._lastClickMobId == hoverMobId and (now - self._lastClickAt) <= Config.DoubleClickThresholdSeconds then
 		mode = "Double"
@@ -416,24 +457,51 @@ function WeaponController:_handleWeaponPacket(packet: WeaponPacket)
 	for uid in pairs(self._weaponStateByUid) do
 		if nextStateByUid[uid] == nil then
 			self:_destroyVisual(uid)
+			self._uidHashByUid[uid] = nil
+		end
+	end
+
+	for uid in pairs(nextStateByUid) do
+		if self._uidHashByUid[uid] == nil then
+			self._uidHashByUid[uid] = hashString(uid)
 		end
 	end
 
 	self._weaponStateByUid = nextStateByUid
+	self._layoutDirty = true
 end
 
 function WeaponController:_getMobPosition(mobId: string): Vector3?
+	local now = os.clock()
+
+	local cachedInstance = self._mobInstanceById[mobId]
+	if cachedInstance ~= nil then
+		if cachedInstance.Parent ~= nil then
+			local cachedPosition = resolveInstanceWorldPosition(cachedInstance)
+			if cachedPosition ~= nil then
+				self._mobPositionCacheById[mobId] = {
+					Position = cachedPosition,
+					ExpiresAt = now + MOB_POSITION_GRACE_SECONDS,
+				}
+				return cachedPosition
+			end
+		else
+			self._mobInstanceById[mobId] = nil
+		end
+	end
+
 	local mobsClientRoot = self._mobsClientRoot
 	if mobsClientRoot ~= nil then
 		local mobVisual = mobsClientRoot:FindFirstChild(mobId)
 		if mobVisual ~= nil then
-			if mobVisual:IsA("Model") then
-				local root = mobVisual.PrimaryPart or mobVisual:FindFirstChildWhichIsA("BasePart", true)
-				if root ~= nil then
-					return root.Position
-				end
-			elseif mobVisual:IsA("BasePart") then
-				return mobVisual.Position
+			local position = resolveInstanceWorldPosition(mobVisual)
+			if position ~= nil then
+				self._mobInstanceById[mobId] = mobVisual
+				self._mobPositionCacheById[mobId] = {
+					Position = position,
+					ExpiresAt = now + MOB_POSITION_GRACE_SECONDS,
+				}
+				return position
 			end
 		end
 	end
@@ -441,18 +509,33 @@ function WeaponController:_getMobPosition(mobId: string): Vector3?
 	local serverMobsRoot = self._serverMobsRoot
 	if serverMobsRoot ~= nil then
 		local proxy = serverMobsRoot:FindFirstChild(mobId)
-		if proxy ~= nil and proxy:IsA("Model") then
-			local root = proxy.PrimaryPart or proxy:FindFirstChild("HumanoidRootPart")
-			if root and root:IsA("BasePart") then
-				return root.Position
+		if proxy ~= nil then
+			local position = resolveInstanceWorldPosition(proxy)
+			if position ~= nil then
+				self._mobInstanceById[mobId] = proxy
+				self._mobPositionCacheById[mobId] = {
+					Position = position,
+					ExpiresAt = now + MOB_POSITION_GRACE_SECONDS,
+				}
+				return position
 			end
 		end
 	end
 
+	local cached = self._mobPositionCacheById[mobId]
+	if cached ~= nil and now <= cached.ExpiresAt then
+		return cached.Position
+	end
+	self._mobPositionCacheById[mobId] = nil
+
 	return nil
 end
 
-function WeaponController:_buildOrderedWeaponsByMode()
+function WeaponController:_rebuildLayoutCacheIfDirty()
+	if self._layoutDirty ~= true then
+		return
+	end
+
 	local assignedByMobId = {} :: {[string]: {WeaponState}}
 	local unassigned = {} :: {WeaponState}
 
@@ -469,19 +552,14 @@ function WeaponController:_buildOrderedWeaponsByMode()
 		end
 	end
 
-	local function sortByQueue(a: WeaponState, b: WeaponState): boolean
-		if a.QueueIndex == b.QueueIndex then
-			return a.Uid < b.Uid
-		end
-		return a.QueueIndex < b.QueueIndex
-	end
-
-	table.sort(unassigned, sortByQueue)
+	table.sort(unassigned, sortWeaponByQueue)
 	for _, bucket in pairs(assignedByMobId) do
-		table.sort(bucket, sortByQueue)
+		table.sort(bucket, sortWeaponByQueue)
 	end
 
-	return unassigned, assignedByMobId
+	self._cachedUnassignedWeapons = unassigned
+	self._cachedAssignedWeaponsByMobId = assignedByMobId
+	self._layoutDirty = false
 end
 
 function WeaponController:_applyVisualPose(record: WeaponVisualRecord)
@@ -497,7 +575,10 @@ function WeaponController:_applyVisualPose(record: WeaponVisualRecord)
 end
 
 function WeaponController:_stepRender(dt: number)
-	self._hoverMobId = self:_resolveHoverMobId()
+	self:_refreshSceneRoots()
+
+	local now = os.clock()
+	self._hoverMobId = self:_resolveHoverMobId(now)
 	self:_applyCursorForHover(self._hoverMobId)
 
 	local rootCFrame = resolveCharacterRootCFrame(self._player)
@@ -505,12 +586,20 @@ function WeaponController:_stepRender(dt: number)
 		return
 	end
 
-	local now = os.clock()
-	local unassigned, assignedByMobId = self:_buildOrderedWeaponsByMode()
-	local desiredPoseByUid = {} :: {[string]: {Position: Vector3, Facing: Vector3}}
+	self:_rebuildLayoutCacheIfDirty()
+	local unassigned = self._cachedUnassignedWeapons
+	local assignedByMobId = self._cachedAssignedWeaponsByMobId
+	local desiredPositionByUid = self._desiredPositionByUid
+	local desiredFacingByUid = self._desiredFacingByUid
+	table.clear(desiredPositionByUid)
+	table.clear(desiredFacingByUid)
 
 	for index, weapon in ipairs(unassigned) do
-		local uidHash = hashString(weapon.Uid)
+		local uidHash = self._uidHashByUid[weapon.Uid]
+		if uidHash == nil then
+			uidHash = hashString(weapon.Uid)
+			self._uidHashByUid[weapon.Uid] = uidHash
+		end
 		local position, facing = WeaponVisualLayout.ComputeFollowPose(
 			rootCFrame,
 			index,
@@ -519,17 +608,19 @@ function WeaponController:_stepRender(dt: number)
 			now,
 			uidHash
 		)
-		desiredPoseByUid[weapon.Uid] = {
-			Position = position,
-			Facing = facing,
-		}
+		desiredPositionByUid[weapon.Uid] = position
+		desiredFacingByUid[weapon.Uid] = facing
 	end
 
 	for mobId, bucket in pairs(assignedByMobId) do
 		local mobPosition = self:_getMobPosition(mobId)
 		if mobPosition ~= nil then
 			for index, weapon in ipairs(bucket) do
-				local uidHash = hashString(weapon.Uid)
+				local uidHash = self._uidHashByUid[weapon.Uid]
+				if uidHash == nil then
+					uidHash = hashString(weapon.Uid)
+					self._uidHashByUid[weapon.Uid] = uidHash
+				end
 				local position, facing = WeaponVisualLayout.ComputeAssignedPose(
 					mobPosition,
 					index,
@@ -539,10 +630,8 @@ function WeaponController:_stepRender(dt: number)
 					self._ownerOffsetRadians,
 					uidHash
 				)
-				desiredPoseByUid[weapon.Uid] = {
-					Position = position,
-					Facing = facing,
-				}
+				desiredPositionByUid[weapon.Uid] = position
+				desiredFacingByUid[weapon.Uid] = facing
 			end
 		end
 	end
@@ -550,10 +639,11 @@ function WeaponController:_stepRender(dt: number)
 	for uid, state in pairs(self._weaponStateByUid) do
 		local record = self:_ensureVisual(uid, state.DefId)
 		if record ~= nil then
-			local desired = desiredPoseByUid[uid]
-			if desired ~= nil then
-				record.TargetPosition = desired.Position
-				record.TargetFacing = desired.Facing
+			local desiredPosition = desiredPositionByUid[uid]
+			local desiredFacing = desiredFacingByUid[uid]
+			if desiredPosition ~= nil and desiredFacing ~= nil then
+				record.TargetPosition = desiredPosition
+				record.TargetFacing = desiredFacing
 			else
 				record.TargetPosition = rootCFrame.Position + Vector3.new(0, Config.FollowVerticalOffset, 0)
 				record.TargetFacing = rootCFrame.LookVector
@@ -581,6 +671,13 @@ function WeaponController:Destroy()
 		self:_destroyVisual(uid)
 	end
 	table.clear(self._weaponStateByUid)
+	table.clear(self._uidHashByUid)
+	table.clear(self._cachedUnassignedWeapons)
+	table.clear(self._cachedAssignedWeaponsByMobId)
+	table.clear(self._mobPositionCacheById)
+	table.clear(self._mobInstanceById)
+	table.clear(self._desiredPositionByUid)
+	table.clear(self._desiredFacingByUid)
 
 	if self._janitor ~= nil then
 		self._janitor:Cleanup()
