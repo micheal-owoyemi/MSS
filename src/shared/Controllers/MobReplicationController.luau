@@ -8,6 +8,7 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local Janitor = require(ReplicatedStorage.Packages.Janitor)
 local Config = require(script.Parent.MobReplicationControllerConfig)
 local MobAnimationPlayer = require(script.Parent.MobAnimationPlayer)
+local MobDefs = require(ReplicatedStorage.Configs.MobDefs)
 
 type Packet = {
 	seq: number?,
@@ -17,9 +18,27 @@ type Packet = {
 	rm: {string}?,
 }
 
+type TextGuiObject = TextLabel | TextButton
+
+type HealthFillBinding = {
+	GuiObject: GuiObject,
+	BaseSize: UDim2,
+}
+
+type MobUiBinding = {
+	Billboard: BillboardGui?,
+	NameLabels: {TextGuiObject},
+	HealthLabels: {TextGuiObject},
+	HealthFillBars: {HealthFillBinding},
+	LastName: string?,
+	LastHp: number?,
+	LastMaxHp: number?,
+}
+
 type MobVisualRecord = {
 	Model: Model?,
 	AnimationPlayer: any?,
+	UiBinding: MobUiBinding?,
 	Revision: number,
 	ZoneId: string,
 	MobDefId: string,
@@ -66,6 +85,10 @@ local function parseXZ(rawXZ: any): Vector2?
 		return nil
 	end
 	return rawXZ
+end
+
+local function isTextGuiObject(instance: Instance): boolean
+	return instance:IsA("TextLabel") or instance:IsA("TextButton")
 end
 
 local function isFiniteNumber(value: number): boolean
@@ -130,6 +153,22 @@ local function resolveTemplate(zoneId: string, mobDefId: string): Model?
 	end
 
 	return nil
+end
+
+local function resolveDisplayName(mobDefId: string): string
+	local def = MobDefs[mobDefId]
+	if typeof(def) == "table" then
+		local displayName = def.DisplayName
+		if typeof(displayName) == "string" and displayName ~= "" then
+			return displayName
+		end
+	end
+
+	-- Fallback for unknown defs: convert "ChestMimic2" -> "Chest Mimic 2"
+	local humanized = string.gsub(mobDefId, "(%l)(%u)", "%1 %2")
+	humanized = string.gsub(humanized, "(%a)(%d)", "%1 %2")
+	humanized = string.gsub(humanized, "(%d)(%a)", "%1 %2")
+	return humanized
 end
 
 local function templateCacheKey(zoneId: string, mobDefId: string): string
@@ -251,6 +290,195 @@ function MobReplicationController:_warnMissingTemplateOnce(zoneId: string, mobDe
 	end
 	self._warnedMissingTemplateByKey[warnKey] = true
 	warn(string.format("[MobReplicationController] Missing template for zone='%s' mobDefId='%s'", zoneId, mobDefId))
+end
+
+function MobReplicationController:_resolveUiAttachment(model: Model): Attachment?
+	local direct = model:FindFirstChild("UIAttachment")
+	if direct ~= nil and direct:IsA("Attachment") then
+		return direct
+	end
+	local directContainer = model:FindFirstChild("UIContainer")
+	if directContainer ~= nil and directContainer:IsA("Attachment") then
+		return directContainer
+	end
+	local recursive = model:FindFirstChild("UIAttachment", true)
+	if recursive ~= nil and recursive:IsA("Attachment") then
+		return recursive
+	end
+	local recursiveContainer = model:FindFirstChild("UIContainer", true)
+	if recursiveContainer ~= nil and recursiveContainer:IsA("Attachment") then
+		return recursiveContainer
+	end
+	return nil
+end
+
+function MobReplicationController:_resolveBillboard(model: Model, uiAttachment: Attachment?): BillboardGui?
+	local preferred: BillboardGui? = nil
+	local fallback: BillboardGui? = nil
+
+	if uiAttachment ~= nil then
+		for _, child in ipairs(uiAttachment:GetChildren()) do
+			if child:IsA("BillboardGui") then
+				local billboard = child :: BillboardGui
+				local lowerName = string.lower(billboard.Name)
+				if preferred == nil and (lowerName == "mobpropertiescontainer" or string.find(lowerName, "mobproperties", 1, true) ~= nil) then
+					preferred = billboard
+				end
+				if fallback == nil then
+					fallback = billboard
+				end
+			end
+		end
+	end
+
+	if preferred ~= nil then
+		if uiAttachment ~= nil and preferred.Adornee == nil then
+			preferred.Adornee = uiAttachment
+		end
+		return preferred
+	end
+	if fallback ~= nil then
+		if uiAttachment ~= nil and fallback.Adornee == nil then
+			fallback.Adornee = uiAttachment
+		end
+		return fallback
+	end
+
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BillboardGui") then
+			local billboard = descendant :: BillboardGui
+			local lowerName = string.lower(billboard.Name)
+			if preferred == nil and (lowerName == "mobpropertiescontainer" or string.find(lowerName, "mobproperties", 1, true) ~= nil) then
+				preferred = billboard
+			end
+			if fallback == nil then
+				fallback = billboard
+			end
+		end
+	end
+
+	local resolved = if preferred ~= nil then preferred else fallback
+	if resolved ~= nil and uiAttachment ~= nil and resolved.Adornee == nil then
+		resolved.Adornee = uiAttachment
+	end
+	return resolved
+end
+
+function MobReplicationController:_buildUiBinding(model: Model, mobDefId: string): MobUiBinding?
+	local uiAttachment = self:_resolveUiAttachment(model)
+	local billboard = self:_resolveBillboard(model, uiAttachment)
+	if billboard == nil then
+		return nil
+	end
+	if billboard.Enabled ~= true then
+		billboard.Enabled = true
+	end
+
+	local nameLabels = {} :: {TextGuiObject}
+	local healthLabels = {} :: {TextGuiObject}
+	local healthFillBars = {} :: {HealthFillBinding}
+
+	local explicitName = billboard:FindFirstChild("MobName", true)
+	if explicitName ~= nil and isTextGuiObject(explicitName) then
+		table.insert(nameLabels, explicitName :: TextGuiObject)
+	end
+	local explicitHealthNumber = billboard:FindFirstChild("HealthNumber", true)
+	if explicitHealthNumber ~= nil and isTextGuiObject(explicitHealthNumber) then
+		table.insert(healthLabels, explicitHealthNumber :: TextGuiObject)
+	end
+	local explicitHealthBar = billboard:FindFirstChild("HealthBar", true)
+	if explicitHealthBar ~= nil and explicitHealthBar:IsA("GuiObject") then
+		local healthBar = explicitHealthBar :: GuiObject
+		table.insert(healthFillBars, {
+			GuiObject = healthBar,
+			BaseSize = healthBar.Size,
+		})
+	end
+
+	for _, descendant in ipairs(billboard:GetDescendants()) do
+		if isTextGuiObject(descendant) then
+			local textObject = descendant :: TextGuiObject
+			local lowerName = string.lower(textObject.Name)
+			if #nameLabels == 0 and string.find(lowerName, "name", 1, true) ~= nil then
+				table.insert(nameLabels, textObject)
+			elseif #healthLabels == 0 and (string.find(lowerName, "healthnumber", 1, true) ~= nil or string.find(lowerName, "hp", 1, true) ~= nil) then
+				table.insert(healthLabels, textObject)
+			end
+		elseif #healthFillBars == 0 and descendant:IsA("GuiObject") then
+			local guiObject = descendant :: GuiObject
+			local lowerName = string.lower(guiObject.Name)
+			local isHealthFill = string.find(lowerName, "healthbar", 1, true) ~= nil
+				or string.find(lowerName, "hpbar", 1, true) ~= nil
+				or string.find(lowerName, "fill", 1, true) ~= nil
+			if isHealthFill then
+				table.insert(healthFillBars, {
+					GuiObject = guiObject,
+					BaseSize = guiObject.Size,
+				})
+			end
+		end
+	end
+
+	local binding: MobUiBinding = {
+		Billboard = billboard,
+		NameLabels = nameLabels,
+		HealthLabels = healthLabels,
+		HealthFillBars = healthFillBars,
+		LastName = nil,
+		LastHp = nil,
+		LastMaxHp = nil,
+	}
+
+	return binding
+end
+
+function MobReplicationController:_applyUiState(record: MobVisualRecord, state: {[string]: any})
+	local binding = record.UiBinding
+	if binding == nil then
+		return
+	end
+
+	local nextName = resolveDisplayName(record.MobDefId)
+	local hp = tonumber(state.h)
+	local maxHp = tonumber(state.mh)
+	local hasHealth = hp ~= nil and maxHp ~= nil and maxHp > 0
+	local safeHp = if hp ~= nil then math.max(0, hp) else 0
+	local safeMaxHp = if maxHp ~= nil then math.max(1, maxHp) else 1
+	local ratio = math.clamp(safeHp / safeMaxHp, 0, 1)
+
+	if binding.LastName ~= nextName then
+		binding.LastName = nextName
+		for _, label in ipairs(binding.NameLabels) do
+			if label.Parent ~= nil then
+				label.Text = nextName
+			end
+		end
+	end
+
+	if hasHealth and (binding.LastHp ~= safeHp or binding.LastMaxHp ~= safeMaxHp) then
+		binding.LastHp = safeHp
+		binding.LastMaxHp = safeMaxHp
+
+		local healthText = string.format("%d/%d", math.floor(safeHp + 0.5), math.floor(safeMaxHp + 0.5))
+		for _, label in ipairs(binding.HealthLabels) do
+			if label.Parent ~= nil then
+				label.Text = healthText
+			end
+		end
+
+		for _, fillBinding in ipairs(binding.HealthFillBars) do
+			local guiObject = fillBinding.GuiObject
+			if guiObject.Parent ~= nil then
+				local baseSize = fillBinding.BaseSize
+				guiObject.Size = UDim2.new(
+					baseSize.X.Scale * ratio,
+					math.floor(baseSize.X.Offset * ratio + 0.5),
+					baseSize.Y.Scale,
+					baseSize.Y.Offset
+				)
+			end
+		end
+	end
 end
 
 function MobReplicationController:_applyRenderPose(record: MobVisualRecord)
@@ -538,6 +766,7 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 	local record: MobVisualRecord = {
 		Model = model,
 		AnimationPlayer = animationPlayer,
+		UiBinding = self:_buildUiBinding(model, mobDefId),
 		Revision = tonumber(addState.r) or 0,
 		ZoneId = zoneId,
 		MobDefId = mobDefId,
@@ -559,6 +788,7 @@ function MobReplicationController:_ensureVisual(addState: {[string]: any}): MobV
 	self:_applyRenderPose(record)
 
 	setCommonAttributes(model, addState)
+	self:_applyUiState(record, addState)
 	local initialState = getStateString(addState)
 	if initialState ~= nil and record.AnimationPlayer ~= nil then
 		record.AnimationPlayer:ApplyState(initialState)
@@ -597,6 +827,7 @@ function MobReplicationController:_applyState(record: MobVisualRecord, state: {[
 	if record.Model ~= nil then
 		setCommonAttributes(record.Model, state)
 	end
+	self:_applyUiState(record, state)
 
 	local brainState = getStateString(state)
 	if brainState ~= nil and record.AnimationPlayer ~= nil then
