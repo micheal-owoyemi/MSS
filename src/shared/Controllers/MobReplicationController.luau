@@ -332,13 +332,13 @@ function MobReplicationController:_resolveBillboard(model: Model, uiAttachment: 
 	end
 
 	if preferred ~= nil then
-		if uiAttachment ~= nil and preferred.Adornee == nil then
+		if uiAttachment ~= nil and (preferred.Adornee :: Instance?) == nil then
 			preferred.Adornee = uiAttachment
 		end
 		return preferred
 	end
 	if fallback ~= nil then
-		if uiAttachment ~= nil and fallback.Adornee == nil then
+		if uiAttachment ~= nil and (fallback.Adornee :: Instance?) == nil then
 			fallback.Adornee = uiAttachment
 		end
 		return fallback
@@ -358,7 +358,7 @@ function MobReplicationController:_resolveBillboard(model: Model, uiAttachment: 
 	end
 
 	local resolved = if preferred ~= nil then preferred else fallback
-	if resolved ~= nil and uiAttachment ~= nil and resolved.Adornee == nil then
+	if resolved ~= nil and uiAttachment ~= nil and (resolved.Adornee :: Instance?) == nil then
 		resolved.Adornee = uiAttachment
 	end
 	return resolved
@@ -450,7 +450,7 @@ function MobReplicationController:_applyUiState(record: MobVisualRecord, state: 
 		binding.LastName = nextName
 		for _, label in ipairs(binding.NameLabels) do
 			if label.Parent ~= nil then
-				label.Text = nextName
+				(label :: TextLabel).Text = nextName
 			end
 		end
 	end
@@ -462,7 +462,7 @@ function MobReplicationController:_applyUiState(record: MobVisualRecord, state: 
 		local healthText = string.format("%d/%d", math.floor(safeHp + 0.5), math.floor(safeMaxHp + 0.5))
 		for _, label in ipairs(binding.HealthLabels) do
 			if label.Parent ~= nil then
-				label.Text = healthText
+				(label :: TextLabel).Text = healthText
 			end
 		end
 
